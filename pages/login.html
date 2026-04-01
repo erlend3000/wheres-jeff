@@ -1,0 +1,287 @@
+<!DOCTYPE html>
+<html lang="no">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Where's Jeff?</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Jost:ital,wght@0,700;0,900;1,700;1,900&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="../css/components.css">
+    <script type="module" src="../app.js"></script>
+</head>
+<body>
+
+    <div class="page-loader" id="page-loader"><span class="loader"></span></div>
+
+    <!-- Hero: logo + Jeff + scroll arrow -->
+    <section class="hero" id="hero">
+        <img class="hero__logo" src="../assets/logo.png" alt="Where's Jeff?">
+        <img class="hero__jeff" src="../assets/jeff.png" alt="Jeff the camel">
+        <button class="hero__arrow" id="scroll-down" aria-label="Scroll down"></button>
+    </section>
+
+    <!-- Login card area -->
+    <section class="page-center" id="login-section">
+
+        <!-- Step 1: Welcome -->
+        <div class="login-step active" id="step-welcome">
+            <wheff-card>
+                <wheff-banner position="top" from="left">Welcome!</wheff-banner>
+                <wheff-field label="Email" type="email" placeholder="jeff@jeffworld.com"></wheff-field>
+                <wheff-banner position="bottom" from="right" action="next">Go!</wheff-banner>
+            </wheff-card>
+        </div>
+
+        <!-- Step 2: Create account -->
+        <div class="login-step" id="step-create">
+            <wheff-card aspect="2.31">
+                <wheff-banner position="top" from="left">Create Account</wheff-banner>
+                <wheff-field label="Name" placeholder="Your name"></wheff-field>
+                <wheff-field label="Email" type="email" placeholder="jeff@jeffworld.com"></wheff-field>
+                <wheff-field label="Password" type="password" placeholder="••••••••"></wheff-field>
+                <wheff-banner position="bottom" from="left" size="small" action="back" variant="secondary">Back</wheff-banner>
+                <wheff-banner position="bottom" from="right" action="next">Go!</wheff-banner>
+            </wheff-card>
+        </div>
+
+        <!-- Step 3: Log in -->
+        <div class="login-step" id="step-login">
+            <wheff-card aspect="2.66">
+                <wheff-banner position="top" from="left">Log In</wheff-banner>
+                <wheff-field label="Email" type="email" placeholder="jeff@jeffworld.com"></wheff-field>
+                <wheff-field label="Password" type="password" placeholder="••••••••"></wheff-field>
+                <wheff-banner position="bottom" from="left" size="small" action="back" variant="secondary">Back</wheff-banner>
+                <wheff-banner position="bottom" from="right" action="next">Go!</wheff-banner>
+            </wheff-card>
+        </div>
+
+    </section>
+
+    <script>
+        function fixAutofill() {
+            document.querySelectorAll('.field__input').forEach(input => {
+                input.focus({ preventScroll: true });
+                input.blur();
+            });
+        }
+        setTimeout(fixAutofill, 2500);
+    </script>
+
+    <script type="module">
+        import { signUp, signIn, redirectIfLoggedIn } from '../lib/auth.js';
+        import { supabase } from '../lib/supabase.js';
+        import { showModal, hideModal } from '../lib/modal.js';
+        import { showToast } from '../lib/toast.js';
+
+        await redirectIfLoggedIn();
+        await Promise.all([
+            document.fonts.load('700 1em Jost'),
+            document.fonts.load('900 1em Jost'),
+            document.fonts.load('italic 700 1em Jost'),
+            document.fonts.load('italic 900 1em Jost'),
+        ]);
+        document.getElementById('page-loader')?.remove();
+
+        function setBannerLoading(el, loading) {
+            if (loading) {
+                el.classList.add('banner--disabled', 'banner--loading');
+                el.style.animationName = 'none';
+                if (!el.querySelector('.loader')) {
+                    el.insertAdjacentHTML('beforeend', '<span class="loader loader--btn"></span>');
+                }
+            } else {
+                el.classList.remove('banner--disabled', 'banner--loading');
+                el.style.animationName = '';
+                el.querySelector('.loader')?.remove();
+            }
+        }
+
+        const steps = {
+            welcome: document.getElementById('step-welcome'),
+            create:  document.getElementById('step-create'),
+            login:   document.getElementById('step-login'),
+        };
+
+        let emailFromStep1 = '';
+
+        function showStep(name) {
+            Object.values(steps).forEach(s => s.classList.remove('active'));
+            steps[name].classList.add('active');
+        }
+
+        document.getElementById('scroll-down').addEventListener('click', () => {
+            document.getElementById('login-section').scrollIntoView({ behavior: 'smooth' });
+        });
+
+        function isFieldValid(input) {
+            if (input.type === 'email') return input.value.includes('@') && input.value.includes('.');
+            return input.value.trim().length > 0;
+        }
+
+        function watchGoButtons() {
+            const allSteps = document.querySelectorAll('.login-step');
+            let pending = false;
+
+            allSteps.forEach(step => {
+                const goBanner = step.querySelector('wheff-banner[action="next"]');
+                const inputs = step.querySelectorAll('.field__input');
+                if (!goBanner || !inputs.length) { pending = true; return; }
+
+                goBanner.classList.add('banner--disabled');
+
+                const check = () => {
+                    const allValid = [...inputs].every(isFieldValid);
+                    goBanner.classList.toggle('banner--pulse', allValid);
+                    goBanner.classList.toggle('banner--disabled', !allValid);
+                };
+
+                inputs.forEach(input => input.addEventListener('input', check));
+                check();
+            });
+
+            if (pending) setTimeout(watchGoButtons, 200);
+        }
+        watchGoButtons();
+
+        document.addEventListener('keydown', (e) => {
+            if (e.key !== 'Enter') return;
+            const activeStep = document.querySelector('.login-step.active');
+            if (!activeStep) return;
+            const goBanner = activeStep.querySelector('wheff-banner[action="next"]');
+            if (goBanner && !goBanner.classList.contains('banner--disabled')) {
+                goBanner.click();
+            }
+        });
+
+        document.addEventListener('wheff-action', async (e) => {
+            const { action } = e.detail;
+            const card = e.target.closest('wheff-card');
+            const step = e.target.closest('.login-step');
+
+            if (action === 'back') {
+                showStep('welcome');
+                return;
+            }
+
+            if (action !== 'next') return;
+
+            const goBtn = step.querySelector('wheff-banner[action="next"]');
+
+            // Step 1: Welcome → check if email exists → route accordingly
+            if (step.id === 'step-welcome') {
+                const data = card.getFormData();
+                emailFromStep1 = data.email || '';
+                if (!emailFromStep1) return;
+
+                setBannerLoading(goBtn, true);
+                const { data: exists } = await supabase.rpc('email_exists', {
+                    check_email: emailFromStep1
+                });
+                setBannerLoading(goBtn, false);
+
+                const nextStep = exists ? 'login' : 'create';
+                showStep(nextStep);
+
+                const target = exists ? steps.login : steps.create;
+                const emailField = target.querySelector('wheff-field[label="Email"]');
+                if (emailField) emailField.value = emailFromStep1;
+                return;
+            }
+
+            // Step 2: Create account → try sign up
+            if (step.id === 'step-create') {
+                const data = card.getFormData();
+                setBannerLoading(goBtn, true);
+
+                const { data: alreadyExists } = await supabase.rpc('email_exists', { check_email: data.email });
+                if (alreadyExists) {
+                    setBannerLoading(goBtn, false);
+                    showToast('Email already registered');
+                    showStep('login');
+                    const emailField = steps.login.querySelector('wheff-field[label="Email"]');
+                    if (emailField) emailField.value = data.email;
+                    return;
+                }
+
+                try {
+                    const result = await signUp(data.email, data.password, data.name);
+
+                    showModal({
+                        label: 'Jeff says',
+                        text: 'Check your email and click the link'
+                    });
+
+                    function showResendButton() {
+                        const modal = document.querySelector('.modal');
+                        if (!modal) return;
+                        modal.classList.add('modal--has-buttons');
+                        const wrap = document.createElement('div');
+                        wrap.className = 'modal__buttons';
+                        wrap.innerHTML = '<button class="modal__btn"><span class="modal__btn-text">Resend</span></button>';
+                        modal.appendChild(wrap);
+                        wrap.querySelector('.modal__btn').addEventListener('click', async () => {
+                            const textEl = modal.querySelector('.modal__text');
+                            const { error } = await supabase.auth.resend({ type: 'signup', email: data.email });
+                            textEl.textContent = error ? 'Please wait a moment' : 'Email sent';
+                            modal.classList.remove('modal--has-buttons');
+                            wrap.remove();
+                            setTimeout(() => textEl.textContent = 'Check your email and click the link', 2000);
+                            setTimeout(showResendButton, 60000);
+                        });
+                    }
+                    setTimeout(showResendButton, 60000);
+
+                    let signInAttempts = 0;
+                    const pollInterval = setInterval(async () => {
+                        const { data: confirmed } = await supabase.rpc('is_email_confirmed', { p_email: data.email });
+                        if (confirmed) {
+                            signInAttempts++;
+                            try {
+                                await signIn(data.email, data.password);
+                                clearInterval(pollInterval);
+                                window.location.href = '/pages/game.html';
+                            } catch (e) {
+                                if (signInAttempts >= 3) {
+                                    clearInterval(pollInterval);
+                                    hideModal();
+                                    showStep('login');
+                                    const emailField = steps.login.querySelector('wheff-field[label="Email"]');
+                                    if (emailField) emailField.value = data.email;
+                                }
+                            }
+                        }
+                    }, 3000);
+                } catch (err) {
+                    setBannerLoading(goBtn, false);
+                    if (err.message.includes('already registered')) {
+                        showToast('Email already registered');
+                        showStep('login');
+                        const emailField = steps.login.querySelector('wheff-field[label="Email"]');
+                        if (emailField) emailField.value = data.email;
+                    } else {
+                        showToast(err.message || 'Sign up failed', { type: 'error' });
+                    }
+                }
+                return;
+            }
+
+            // Step 3: Log in → try sign in
+            if (step.id === 'step-login') {
+                const data = card.getFormData();
+                setBannerLoading(goBtn, true);
+                try {
+                    await signIn(data.email, data.password);
+                    window.location.href = '/pages/game.html';
+                } catch (err) {
+                    setBannerLoading(goBtn, false);
+                    showToast(err.message || 'Login failed', { type: 'error' });
+                }
+                return;
+            }
+        });
+
+    </script>
+
+</body>
+</html>

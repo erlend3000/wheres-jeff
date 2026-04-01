@@ -1,0 +1,7 @@
+{
+  "buildCommand": "sh build.sh",
+  "outputDirectory": ".",
+  "rewrites": [
+    { "source": "/", "destination": "/pages/game.html" }
+  ]
+}

@@ -1,0 +1,958 @@
+<!DOCTYPE html>
+<html lang="no">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Admin — Where's Jeff?</title>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+    <link rel="stylesheet" href="https://unpkg.com/leaflet-control-geocoder@2.4.0/dist/Control.Geocoder.css">
+    <link rel="stylesheet" href="../css/admin.css">
+</head>
+<body>
+
+<div class="admin-shell">
+
+    <!-- ═══ SIDEBAR ═══ -->
+    <nav class="sidebar">
+        <div class="sidebar__logo">
+            <img src="../assets/logo.png" alt="Where's Jeff?">
+        </div>
+        <div class="sidebar__section">
+            <ul class="sidebar__nav">
+                <li class="sidebar__item active" data-tab="seasons">
+                    <svg viewBox="0 0 20 20" fill="currentColor"><path d="M3 4a1 1 0 011-1h12a1 1 0 011 1v2a1 1 0 01-1 1H4a1 1 0 01-1-1V4zm0 6a1 1 0 011-1h12a1 1 0 011 1v2a1 1 0 01-1 1H4a1 1 0 01-1-1v-2zm0 6a1 1 0 011-1h12a1 1 0 011 1v2a1 1 0 01-1 1H4a1 1 0 01-1-1v-2z"/></svg>
+                    Games
+                </li>
+                <li class="sidebar__item" data-tab="mysteries">
+                    <svg viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-8-3a1 1 0 00-.867.5 1 1 0 11-1.731-1A3 3 0 0113 8a3.001 3.001 0 01-2 2.83V11a1 1 0 11-2 0v-1a1 1 0 011-1 1 1 0 100-2zm0 8a1 1 0 100-2 1 1 0 000 2z" clip-rule="evenodd"/></svg>
+                    Mysteries
+                </li>
+                <li class="sidebar__item" data-tab="users">
+                    <svg viewBox="0 0 20 20" fill="currentColor"><path d="M9 6a3 3 0 11-6 0 3 3 0 016 0zm8 0a3 3 0 11-6 0 3 3 0 016 0zm-4.07 11c.046-.327.07-.66.07-1a6.97 6.97 0 00-1.5-4.33A5 5 0 0119 16v1h-6.07zM6 11a5 5 0 015 5v1H1v-1a5 5 0 015-5z"/></svg>
+                    Users
+                </li>
+            </ul>
+        </div>
+        <div class="sidebar__spacer"></div>
+        <div class="sidebar__footer">
+            <a class="sidebar__item" href="/pages/game.html">
+                <svg viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M9.707 16.707a1 1 0 01-1.414 0l-6-6a1 1 0 010-1.414l6-6a1 1 0 011.414 1.414L5.414 9H17a1 1 0 110 2H5.414l4.293 4.293a1 1 0 010 1.414z" clip-rule="evenodd"/></svg>
+                Back to game
+            </a>
+        </div>
+    </nav>
+
+    <!-- ═══ MAIN AREA ═══ -->
+    <div class="main">
+        <header class="main__header">
+            <h1 class="main__title" id="page-title">Games</h1>
+            <div class="main__actions" id="page-actions"></div>
+        </header>
+
+        <div class="main__content">
+
+            <!-- ═══ GAMES ═══ -->
+            <section class="panel active" id="panel-seasons">
+                <div id="seasons-list"></div>
+                <div id="season-detail" style="display:none"></div>
+            </section>
+
+            <!-- ═══ MYSTERIES ═══ -->
+            <section class="panel" id="panel-mysteries">
+                <div class="card" id="mystery-form-card">
+                    <div class="card__header">
+                        <span class="card__title" id="mystery-form-title">New mystery</span>
+                    </div>
+                    <div class="card__body">
+                        <div class="form-group" style="margin-bottom:18px">
+                            <label class="form-label">Type</label>
+                            <select class="form-input" id="mystery-type" style="max-width:200px">
+                                <option value="location">Location</option>
+                                <option value="time" disabled>Time (coming soon)</option>
+                                <option value="film" disabled>Film/TV (coming soon)</option>
+                                <option value="cyber" disabled>Cyberspace (coming soon)</option>
+                            </select>
+                        </div>
+                        <div class="form-group" style="margin-bottom:18px">
+                            <label class="form-label">Image</label>
+                            <div class="upload-zone" id="upload-zone">
+                                <input type="file" accept="image/*" id="mystery-image-file">
+                                <div class="upload-zone__text">Drop image here or click to browse</div>
+                                <div class="upload-zone__hint">JPG, PNG, WebP</div>
+                            </div>
+                            <div class="upload-preview" id="upload-preview">
+                                <img id="upload-preview-img" alt="Preview">
+                            </div>
+                        </div>
+                        <div class="form-group" style="margin-bottom:18px">
+                            <label class="form-label">Answer location (click map)</label>
+                            <div class="map-picker" id="answer-map"></div>
+                            <div class="map-picker__coords" id="answer-coords">No location selected</div>
+                        </div>
+                        <div class="form-group" id="game-entries-section" style="margin-top:18px">
+                            <label class="form-label">Games & scheduling</label>
+                            <div id="game-entries-list" style="margin-top:8px"></div>
+                            <button class="btn btn--plain btn--small" id="btn-add-game-entry" style="margin-top:8px">+ Add game</button>
+                        </div>
+                    </div>
+                    <div class="card__footer">
+                        <button class="btn btn--plain" id="btn-cancel-mystery" style="display:none">Cancel</button>
+                        <button class="btn btn--primary" id="btn-save-mystery">Save mystery</button>
+                    </div>
+                    <input type="hidden" id="mystery-edit-template-id">
+                    <input type="hidden" id="mystery-image-url">
+                </div>
+                <div id="mysteries-list"></div>
+            </section>
+
+            <!-- ═══ USERS ═══ -->
+            <section class="panel" id="panel-users">
+                <div id="users-list"></div>
+            </section>
+
+        </div>
+    </div>
+</div>
+
+<!-- ═══ MODAL ═══ -->
+<div class="modal-overlay" id="modal-overlay">
+    <div class="modal" id="modal">
+        <h3 class="modal__title" id="modal-title"></h3>
+        <div id="modal-body"></div>
+        <div class="modal__actions" id="modal-actions"></div>
+    </div>
+</div>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script src="https://unpkg.com/leaflet-control-geocoder@2.4.0/dist/Control.Geocoder.js"></script>
+<script src="https://unpkg.com/exifreader@4.37.0/dist/exif-reader.js"></script>
+<script type="module">
+import { requireAuth, getProfile } from '../lib/auth.js';
+import * as api from '../lib/admin.js';
+import { showToast } from '../lib/toast.js';
+
+function setButtonLoading(btn, loading) {
+    if (loading) {
+        const textColor = getComputedStyle(btn).color;
+        btn.classList.add('btn--loading');
+        btn.style.color = 'transparent';
+        if (!btn.querySelector('.loader')) {
+            btn.insertAdjacentHTML('beforeend', `<span class="loader loader--admin" style="color:${textColor}"></span>`);
+        }
+    } else {
+        btn.classList.remove('btn--loading');
+        btn.style.color = '';
+        btn.querySelector('.loader')?.remove();
+    }
+}
+
+// ── Auth guard ──
+const session = await requireAuth();
+if (!session) throw new Error('Not authenticated');
+const profile = await getProfile();
+if (!profile?.is_admin) {
+    window.location.href = '/pages/game.html';
+    throw new Error('Not admin');
+}
+
+// ── Sidebar nav ──
+const navItems = document.querySelectorAll('.sidebar__item[data-tab]');
+const panels = document.querySelectorAll('.panel');
+const pageTitle = document.getElementById('page-title');
+const pageActions = document.getElementById('page-actions');
+const titles = { seasons: 'Games', mysteries: 'Mysteries', users: 'Users' };
+
+function switchTab(tab) {
+    navItems.forEach(n => n.classList.toggle('active', n.dataset.tab === tab));
+    panels.forEach(p => p.classList.toggle('active', p.id === `panel-${tab}`));
+    pageTitle.textContent = titles[tab] || tab;
+    pageActions.innerHTML = '';
+    if (tab === 'seasons') {
+        pageActions.innerHTML = '<button class="btn btn--primary" id="btn-new-season-header">New game</button>';
+        document.getElementById('btn-new-season-header').addEventListener('click', promptNewSeason);
+    }
+    if (tab === 'mysteries') {
+        refreshSeasonsCache().then(() => renderGameEntries());
+        setTimeout(() => { answerMap?.invalidateSize(); }, 200);
+    }
+}
+
+navItems.forEach(item => {
+    item.addEventListener('click', () => switchTab(item.dataset.tab));
+});
+
+// ── Modal helpers ──
+const modalOverlay = document.getElementById('modal-overlay');
+function showModal(title, bodyHtml, actions) {
+    document.getElementById('modal-title').textContent = title;
+    document.getElementById('modal-body').innerHTML = bodyHtml;
+    const actionsEl = document.getElementById('modal-actions');
+    actionsEl.innerHTML = '';
+    actions.forEach(a => {
+        const btn = document.createElement('button');
+        btn.className = `btn ${a.cls || 'btn--plain'}`;
+        btn.textContent = a.label;
+        btn.addEventListener('click', () => { closeModal(); a.fn?.(); });
+        actionsEl.appendChild(btn);
+    });
+    modalOverlay.classList.add('active');
+}
+function closeModal() { modalOverlay.classList.remove('active'); }
+modalOverlay.addEventListener('click', e => { if (e.target === modalOverlay) closeModal(); });
+
+// ══════════════════════════════════════════
+// ═══ GAMES ══════════════════════════════
+// ══════════════════════════════════════════
+
+const seasonsList = document.getElementById('seasons-list');
+const seasonDetail = document.getElementById('season-detail');
+
+function promptNewSeason() {
+    showModal('New game', `
+        <div class="form-group">
+            <label class="form-label">Game name</label>
+            <input class="form-input" id="modal-season-name" placeholder="e.g. Familiefeide, Sesong 2..." maxlength="20">
+        </div>`, [
+        { label: 'Cancel' },
+        { label: 'Create', cls: 'btn--primary', fn: async () => {
+            const name = document.getElementById('modal-season-name').value.trim();
+            if (name) { await api.createSeason(name); showToast('Game created'); renderSeasons(); }
+        }}
+    ]);
+    setTimeout(() => document.getElementById('modal-season-name')?.focus(), 100);
+}
+
+let cachedWaitingImages = {};
+const MYSTERY_TYPES = [
+    { key: 'location', label: 'Location' },
+    { key: 'time', label: 'Time' },
+    { key: 'film', label: 'Film / TV' },
+    { key: 'cyber', label: 'Cyberspace' }
+];
+
+async function renderSeasons() {
+    seasonDetail.style.display = 'none';
+    seasonsList.style.display = 'block';
+    try {
+        const imgKeys = MYSTERY_TYPES.map(t => `waiting_image_${t.key}`);
+        const [seasons, ...imgValues] = await Promise.all([
+            api.getSeasons(),
+            ...imgKeys.map(k => api.getSetting(k))
+        ]);
+        const waitingImages = {};
+        MYSTERY_TYPES.forEach((t, i) => { waitingImages[t.key] = imgValues[i]; });
+
+        let html = `<div class="card">
+            <div class="card__header">
+                <span class="card__title">Waiting images</span>
+            </div>
+            <div class="card__body">
+                <div class="form-group" style="margin-bottom:18px">
+                    <label class="form-label">Type</label>
+                    <select class="form-input" id="waiting-type-select" style="max-width:200px">
+                        ${MYSTERY_TYPES.map(t => `<option value="${t.key}">${t.label}</option>`).join('')}
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Image</label>
+                    <div class="upload-zone" id="waiting-upload-zone">
+                        <input type="file" accept="image/*" id="waiting-image-file">
+                        <div class="upload-zone__text">Drop image here or click to browse</div>
+                        <div class="upload-zone__hint">JPG, PNG, WebP</div>
+                    </div>
+                    <div class="upload-preview" id="waiting-upload-preview" ${waitingImages.location ? 'style="display:block"' : ''}>
+                        <img id="waiting-preview-img" alt="Preview" ${waitingImages.location ? `src="${waitingImages.location}"` : ''}>
+                    </div>
+                </div>
+            </div>
+        </div>`;
+        cachedWaitingImages = waitingImages;
+
+        let gamesHtml = '';
+        if (!seasons.length) {
+            gamesHtml = '<div class="empty-state">No games yet. Click "New game" to create one.</div>';
+        } else {
+            gamesHtml = `<div class="card"><table class="admin-table">
+            <thead><tr>
+                <th>Name</th><th>Status</th><th>Members</th><th>Mysteries</th><th></th>
+            </tr></thead>
+            <tbody>${seasons.map(s => `
+                <tr class="clickable-row" data-season-id="${s.id}">
+                    <td style="font-weight:500">${esc(s.name)}</td>
+                    <td>${s.active ? '<span class="badge badge--active">Active</span>' : '<span class="badge badge--ended">Ended</span>'}</td>
+                    <td>${s.season_members?.length || 0}</td>
+                    <td>${s.mysteries?.length || 0}</td>
+                    <td class="actions">
+                        <button class="btn btn--danger btn--small btn-del-season" data-id="${s.id}">Delete</button>
+                    </td>
+                </tr>`).join('')}
+            </tbody></table></div>`;
+        }
+        seasonsList.innerHTML = gamesHtml + html;
+        seasonsList.querySelectorAll('.clickable-row').forEach(row => {
+            row.addEventListener('click', e => {
+                if (e.target.closest('.btn')) return;
+                openSeasonDetail(row.dataset.seasonId);
+            });
+        });
+        seasonsList.querySelectorAll('.btn-del-season').forEach(btn => {
+            btn.addEventListener('click', () => {
+                showModal('Delete game?', '<p style="color:#616161">This permanently deletes the game, its members, and all mysteries.</p>', [
+                    { label: 'Cancel' },
+                    { label: 'Delete', cls: 'btn--danger', fn: async () => { await api.deleteSeason(btn.dataset.id); showToast('Game deleted'); renderSeasons(); } }
+                ]);
+            });
+        });
+        wireWaitingImageUploads();
+    } catch (err) {
+        seasonsList.innerHTML = `<div class="empty-state">Error: ${esc(err.message)}</div>`;
+    }
+}
+
+function wireWaitingImageUploads() {
+    const select = document.getElementById('waiting-type-select');
+    const zone = document.getElementById('waiting-upload-zone');
+    const input = document.getElementById('waiting-image-file');
+    const preview = document.getElementById('waiting-upload-preview');
+    const img = document.getElementById('waiting-preview-img');
+    if (!select || !zone) return;
+
+    function showPreviewForType(type) {
+        const url = cachedWaitingImages[type];
+        if (url) { img.src = url; preview.style.display = 'block'; }
+        else { img.src = ''; preview.style.display = 'none'; }
+    }
+
+    select.addEventListener('change', () => showPreviewForType(select.value));
+
+    zone.addEventListener('dragover', e => { e.preventDefault(); zone.classList.add('dragover'); });
+    zone.addEventListener('dragleave', () => zone.classList.remove('dragover'));
+    zone.addEventListener('drop', e => {
+        e.preventDefault();
+        zone.classList.remove('dragover');
+        if (e.dataTransfer.files.length) doUpload(e.dataTransfer.files[0]);
+    });
+    input?.addEventListener('change', () => { if (input.files.length) doUpload(input.files[0]); });
+
+    async function doUpload(file) {
+        const type = select.value;
+        const { blob } = await processImage(file);
+        img.src = URL.createObjectURL(blob);
+        preview.style.display = 'block';
+        try {
+            const url = await api.uploadWaitingImage(type, blob);
+            cachedWaitingImages[type] = url;
+            showToast('Image uploaded');
+        } catch (err) { showToast('Upload failed: ' + err.message, { type: 'error' }); }
+    }
+}
+
+async function openSeasonDetail(id) {
+    seasonsList.style.display = 'none';
+    seasonDetail.style.display = 'block';
+    try {
+        const [seasons, members, mysteries, allUsers, seasonScores, pendingMembers] = await Promise.all([
+            api.getSeasons(), api.getSeasonMembers(id), api.getMysteriesBySeason(id), api.getUsers(), api.getSeasonScores(id), api.getPendingMembers(id)
+        ]);
+        const season = seasons.find(s => s.id === id);
+        if (!season) return;
+        const memberIds = new Set(members.map(m => m.user_id));
+        const available = allUsers.filter(u => !memberIds.has(u.id));
+        seasonDetail.innerHTML = `
+            <button class="detail-back" id="btn-season-back">&larr; All games</button>
+            <div class="card">
+                <div class="card__header">
+                    <span class="card__title">${esc(season.name)}</span>
+                    ${season.active
+                        ? '<button class="btn btn--danger btn--small" id="btn-end-season">End game</button>'
+                        : '<span class="badge badge--ended">Ended</span>'}
+                </div>
+                <div class="card__body">
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label class="form-label">Rename</label>
+                            <input class="form-input" id="season-rename" value="${esc(season.name)}" maxlength="20">
+                        </div>
+                        <button class="btn btn--plain" id="btn-rename-season">Save</button>
+                    </div>
+                    <div class="form-row" style="margin-top:12px">
+                        <div class="form-group">
+                            <label class="form-label">Max players</label>
+                            <input class="form-input" type="number" id="season-max-players" value="${season.max_players ?? 15}" min="1" max="100">
+                        </div>
+                        <button class="btn btn--plain" id="btn-save-max-players">Save</button>
+                    </div>
+                </div>
+            </div>
+            <div class="card">
+                <div class="card__header">
+                    <span class="card__title">Members (${members.length})</span>
+                </div>
+                <div class="card__body">
+                    <div class="form-row" style="margin-bottom:8px">
+                        <div class="form-group" style="flex:1">
+                            <select class="form-input" id="add-member-select">
+                                <option value="">Add existing user...</option>
+                                ${available.map(u => `<option value="${u.id}">${esc(u.name || u.email)}</option>`).join('')}
+                            </select>
+                        </div>
+                        <button class="btn btn--primary btn--small" id="btn-add-member">Add</button>
+                    </div>
+                    <div class="form-row" style="margin-bottom:16px">
+                        <div class="form-group" style="flex:1">
+                            <input class="form-input" type="email" id="add-member-email" placeholder="Pre-add by email...">
+                        </div>
+                        <button class="btn btn--primary btn--small" id="btn-add-pending">Invite</button>
+                    </div>
+                    ${pendingMembers.length ? `<table class="admin-table" style="margin-bottom:12px">
+                        <thead><tr><th>Pending invites</th><th></th></tr></thead>
+                        <tbody>${pendingMembers.map(p => `<tr>
+                            <td style="color:var(--admin-text-secondary)">${esc(p.email)}</td>
+                            <td class="actions"><button class="btn btn--danger btn--small btn-rm-pending" data-email="${esc(p.email)}">Remove</button></td>
+                        </tr>`).join('')}</tbody></table>` : ''}
+                    ${members.length ? `<table class="admin-table" style="margin-top:4px">
+                        <thead><tr><th>Name</th><th>Score</th><th>Wins</th><th></th></tr></thead>
+                        <tbody>${members.map(m => {
+                            const s = seasonScores[m.user_id] || { score: 0, wins: 0 };
+                            return `<tr>
+                                <td style="font-weight:500">${esc(m.profiles?.name || m.profiles?.email || m.user_id)}</td>
+                                <td>${s.score}</td>
+                                <td>${s.wins}</td>
+                                <td class="actions"><button class="btn btn--danger btn--small btn-rm-member" data-uid="${m.user_id}">Remove</button></td>
+                            </tr>`;
+                        }).join('')}</tbody></table>` : '<div class="empty-state" style="padding:16px 0">No members yet</div>'}
+                </div>
+            </div>
+            <div class="card">
+                <div class="card__header">
+                    <span class="card__title">Mysteries (${mysteries.length})</span>
+                </div>
+                ${mysteries.length ? `<table class="admin-table">
+                    <thead><tr><th>Place</th><th>Status</th><th>Publish</th><th>Reveal</th></tr></thead>
+                    <tbody>${mysteries.map(m => {
+                        const st = api.mysteryStatus(m);
+                        return `<tr>
+                            <td style="font-weight:500">${esc(m.title || '(untitled)')}</td>
+                            <td><span class="badge badge--${st}">${st}</span></td>
+                            <td>${api.formatDate(m.published_at)}</td>
+                            <td>${api.formatDate(m.reveals_at)}</td>
+                        </tr>`;
+                    }).join('')}</tbody></table>` : '<div class="card__body"><div class="empty-state" style="padding:16px 0">No mysteries in this game</div></div>'}
+            </div>`;
+        seasonDetail.querySelector('#btn-season-back').addEventListener('click', renderSeasons);
+        seasonDetail.querySelector('#btn-rename-season')?.addEventListener('click', async () => {
+            const newName = document.getElementById('season-rename').value.trim();
+            if (newName) { await api.updateSeason(id, { name: newName }); showToast('Game renamed'); openSeasonDetail(id); }
+        });
+        seasonDetail.querySelector('#btn-save-max-players')?.addEventListener('click', async () => {
+            const val = parseInt(document.getElementById('season-max-players').value, 10);
+            if (val > 0) { await api.updateSeason(id, { max_players: val }); showToast('Max players updated'); openSeasonDetail(id); }
+        });
+        seasonDetail.querySelector('#btn-end-season')?.addEventListener('click', () => {
+            showModal('End game?', '<p style="color:#616161">This marks the game as ended. You can still view it.</p>', [
+                { label: 'Cancel' },
+                { label: 'End game', cls: 'btn--danger', fn: async () => { await api.endSeason(id); showToast('Game ended'); openSeasonDetail(id); } }
+            ]);
+        });
+        seasonDetail.querySelector('#btn-add-member')?.addEventListener('click', async () => {
+            const sel = document.getElementById('add-member-select');
+            if (sel.value) { await api.addSeasonMember(id, sel.value); showToast('Member added'); openSeasonDetail(id); }
+        });
+        seasonDetail.querySelector('#btn-add-pending')?.addEventListener('click', async () => {
+            const email = document.getElementById('add-member-email').value.trim().toLowerCase();
+            if (!email || !email.includes('@')) return showToast('Enter a valid email address', { type: 'error' });
+            const existing = allUsers.find(u => u.email.toLowerCase() === email);
+            if (existing) {
+                if (memberIds.has(existing.id)) return showToast('Already a member', { type: 'error' });
+                await api.addSeasonMember(id, existing.id);
+                showToast('Member added');
+            } else {
+                try { await api.addPendingMember(id, email); }
+                catch (err) {
+                    if (err.message?.includes('duplicate')) return showToast('Email already invited', { type: 'error' });
+                    throw err;
+                }
+                showToast('Member invited');
+            }
+            openSeasonDetail(id);
+        });
+        seasonDetail.querySelectorAll('.btn-rm-pending').forEach(btn => {
+            btn.addEventListener('click', async () => {
+                await api.removePendingMember(id, btn.dataset.email);
+                showToast('Member removed');
+                openSeasonDetail(id);
+            });
+        });
+        seasonDetail.querySelectorAll('.btn-rm-member').forEach(btn => {
+            btn.addEventListener('click', async () => {
+                await api.removeSeasonMember(id, btn.dataset.uid);
+                showToast('Member removed');
+                openSeasonDetail(id);
+            });
+        });
+    } catch (err) {
+        seasonDetail.innerHTML = `<div class="empty-state">Error: ${esc(err.message)}</div>`;
+    }
+}
+
+renderSeasons();
+switchTab('seasons');
+
+// ══════════════════════════════════════════
+// ═══ MYSTERIES ═══════════════════════════
+// ══════════════════════════════════════════
+
+const mysteriesList = document.getElementById('mysteries-list');
+let answerMap, answerMarker, resolvedLocationName = 'Unknown', resolvedLocationLevels = [];
+let allSeasonsCache = [];
+let gameEntries = [];
+
+async function refreshSeasonsCache() {
+    allSeasonsCache = await api.getSeasons();
+}
+
+function seasonOptions(selectedId) {
+    return allSeasonsCache.map(s =>
+        `<option value="${s.id}" ${s.id === selectedId ? 'selected' : ''}>${esc(s.name)}</option>`
+    ).join('');
+}
+
+function renderGameEntries() {
+    const list = document.getElementById('game-entries-list');
+    if (!list) return;
+    list.innerHTML = gameEntries.map((ge, i) => `
+        <div class="form-row" style="margin-bottom:8px;align-items:flex-end" data-ge-idx="${i}">
+            <div class="form-group" style="flex:1.2">
+                ${i === 0 ? '<label class="form-label">Game</label>' : ''}
+                <select class="form-input ge-season" data-idx="${i}">${seasonOptions(ge.season_id)}</select>
+            </div>
+            <div class="form-group" style="flex:1">
+                ${i === 0 ? '<label class="form-label">Publish</label>' : ''}
+                <input class="form-input ge-publish" type="datetime-local" data-idx="${i}" value="${ge.published_at || ''}">
+            </div>
+            <div class="form-group" style="flex:1">
+                ${i === 0 ? '<label class="form-label">Reveal</label>' : ''}
+                <input class="form-input ge-reveal" type="datetime-local" data-idx="${i}" value="${ge.reveals_at || ''}">
+            </div>
+            <button class="btn btn--danger ge-remove" data-idx="${i}" ${gameEntries.length <= 1 ? 'disabled' : ''}>&times;</button>
+        </div>`).join('');
+
+    list.querySelectorAll('.ge-season').forEach(el => {
+        el.addEventListener('change', () => { gameEntries[+el.dataset.idx].season_id = el.value; });
+    });
+    list.querySelectorAll('.ge-publish').forEach(el => {
+        el.addEventListener('change', () => { gameEntries[+el.dataset.idx].published_at = el.value; });
+    });
+    list.querySelectorAll('.ge-reveal').forEach(el => {
+        el.addEventListener('change', () => { gameEntries[+el.dataset.idx].reveals_at = el.value; });
+    });
+    list.querySelectorAll('.ge-remove').forEach(el => {
+        el.addEventListener('click', () => {
+            gameEntries.splice(+el.dataset.idx, 1);
+            renderGameEntries();
+        });
+    });
+
+    requestAnimationFrame(() => {
+        const refInput = list.querySelector('.ge-publish');
+        if (refInput) {
+            const h = refInput.offsetHeight + 'px';
+            list.querySelectorAll('.ge-remove').forEach(btn => { btn.style.height = h; });
+        }
+    });
+}
+
+let reverseGeoTimer = null;
+function updateCoordsLabel(latlng) {
+    const coordsEl = document.getElementById('answer-coords');
+    coordsEl.textContent = `${latlng.lat.toFixed(5)}, ${latlng.lng.toFixed(5)} — loading...`;
+    resolvedLocationName = 'Unknown';
+    resolvedLocationLevels = [];
+    clearTimeout(reverseGeoTimer);
+    reverseGeoTimer = setTimeout(() => {
+        fetch(`https://nominatim.openstreetmap.org/reverse?lat=${latlng.lat}&lon=${latlng.lng}&format=json&addressdetails=1&zoom=18&accept-language=en`, {
+            headers: { 'Accept': 'application/json' }
+        })
+        .then(r => { if (!r.ok) throw new Error(r.status); return r.json(); })
+        .then(data => {
+            if (!data || data.error) return;
+            const a = data.address || {};
+            const levels = [
+                a.road || a.pedestrian || a.path || '',
+                a.neighbourhood || a.suburb || a.quarter || a.borough || '',
+                a.city || a.town || a.village || a.hamlet || a.municipality || '',
+                a.state || a.region || a.county || '',
+                a.country || ''
+            ].filter(Boolean);
+            resolvedLocationLevels = levels;
+            resolvedLocationName = levels.length >= 3 ? levels[levels.length - 3] : (levels[0] || 'Unknown');
+            coordsEl.textContent = `${latlng.lat.toFixed(5)}, ${latlng.lng.toFixed(5)} — ${levels.join(', ')}`;
+        })
+        .catch(() => {
+            coordsEl.textContent = `${latlng.lat.toFixed(5)}, ${latlng.lng.toFixed(5)}`;
+        });
+    }, 600);
+}
+
+async function initMysteryForm() {
+    await refreshSeasonsCache();
+    gameEntries = [{ season_id: allSeasonsCache[0]?.id || '', published_at: '', reveals_at: '', instance_id: null }];
+    renderGameEntries();
+
+    answerMap = L.map('answer-map').setView([20, 0], 2);
+    L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
+        attribution: '&copy; OpenStreetMap contributors',
+        maxZoom: 19
+    }).addTo(answerMap);
+
+    L.Control.geocoder({
+        placeholder: 'Search location...',
+        collapsed: false,
+        geocoder: L.Control.Geocoder.nominatim(),
+        defaultMarkGeocode: false
+    }).on('markgeocode', e => {
+        const latlng = e.geocode.center;
+        answerMap.setView(latlng, 13);
+        if (answerMarker) answerMap.removeLayer(answerMarker);
+        answerMarker = L.marker(latlng).addTo(answerMap);
+        updateCoordsLabel(latlng);
+    }).addTo(answerMap);
+
+    answerMap.on('click', e => {
+        if (answerMarker) answerMap.removeLayer(answerMarker);
+        answerMarker = L.marker(e.latlng).addTo(answerMap);
+        updateCoordsLabel(e.latlng);
+    });
+
+    document.getElementById('btn-add-game-entry').addEventListener('click', () => {
+        gameEntries.push({ season_id: allSeasonsCache[0]?.id || '', published_at: '', reveals_at: '', instance_id: null });
+        renderGameEntries();
+    });
+}
+
+const uploadZone = document.getElementById('upload-zone');
+const fileInput = document.getElementById('mystery-image-file');
+const uploadPreview = document.getElementById('upload-preview');
+const previewImg = document.getElementById('upload-preview-img');
+
+uploadZone.addEventListener('dragover', e => { e.preventDefault(); uploadZone.classList.add('dragover'); });
+uploadZone.addEventListener('dragleave', () => uploadZone.classList.remove('dragover'));
+uploadZone.addEventListener('drop', e => {
+    e.preventDefault();
+    uploadZone.classList.remove('dragover');
+    if (e.dataTransfer.files.length) handleFile(e.dataTransfer.files[0]);
+});
+fileInput.addEventListener('change', () => { if (fileInput.files.length) handleFile(fileInput.files[0]); });
+
+let pendingFile = null;
+let pendingDimensions = null;
+const MAX_IMAGE_DIM = 1920;
+
+function processImage(file) {
+    return new Promise((resolve) => {
+        const img = new Image();
+        img.onload = () => {
+            let { width, height } = img;
+            if (width > MAX_IMAGE_DIM || height > MAX_IMAGE_DIM) {
+                const ratio = Math.min(MAX_IMAGE_DIM / width, MAX_IMAGE_DIM / height);
+                width = Math.round(width * ratio);
+                height = Math.round(height * ratio);
+            }
+            const canvas = document.createElement('canvas');
+            canvas.width = width;
+            canvas.height = height;
+            canvas.getContext('2d').drawImage(img, 0, 0, width, height);
+            canvas.toBlob(blob => {
+                blob.name = file.name.replace(/\.[^.]+$/, '.webp');
+                resolve({ blob, width, height });
+            }, 'image/webp', 0.85);
+        };
+        img.src = URL.createObjectURL(file);
+    });
+}
+
+async function handleFile(file) {
+    const { blob, width, height } = await processImage(file);
+    pendingFile = blob;
+    pendingDimensions = { width, height };
+    previewImg.src = URL.createObjectURL(blob);
+    uploadPreview.style.display = 'block';
+
+    try {
+        const buf = await file.arrayBuffer();
+        const tags = ExifReader.load(buf, { expanded: true });
+        const gps = tags.gps;
+        if (gps?.Latitude != null && gps?.Longitude != null) {
+            const latlng = L.latLng(gps.Latitude, gps.Longitude);
+            if (answerMarker) answerMap.removeLayer(answerMarker);
+            answerMarker = L.marker(latlng).addTo(answerMap);
+            answerMap.setView(latlng, 13);
+            updateCoordsLabel(latlng);
+        }
+    } catch (e) { /* no EXIF data — that's fine */ }
+}
+
+function resetMysteryForm() {
+    document.getElementById('mystery-edit-template-id').value = '';
+    document.getElementById('mystery-image-url').value = '';
+    resolvedLocationName = 'Unknown';
+    resolvedLocationLevels = [];
+    document.getElementById('mystery-type').value = 'location';
+    document.getElementById('mystery-form-title').textContent = 'New mystery';
+    document.getElementById('btn-cancel-mystery').style.display = 'none';
+    document.getElementById('btn-save-mystery').textContent = 'Save mystery';
+    uploadPreview.style.display = 'none';
+    previewImg.src = '';
+    pendingFile = null;
+    pendingDimensions = null;
+    if (answerMarker) { answerMap.removeLayer(answerMarker); answerMarker = null; }
+    document.getElementById('answer-coords').textContent = 'No location selected';
+    gameEntries = [{ season_id: allSeasonsCache[0]?.id || '', published_at: '', reveals_at: '', instance_id: null }];
+    renderGameEntries();
+}
+
+function editTemplate(template) {
+    const m = template;
+    pendingFile = null;
+    document.getElementById('mystery-edit-template-id').value = m.template_id;
+    document.getElementById('mystery-image-url').value = m.image_url || '';
+    resolvedLocationName = m.title || 'Unknown';
+    resolvedLocationLevels = m.answer?.location || [];
+    document.getElementById('mystery-type').value = m.type;
+    document.getElementById('mystery-form-title').textContent = 'Edit mystery';
+    document.getElementById('btn-cancel-mystery').style.display = 'inline-flex';
+    document.getElementById('btn-save-mystery').textContent = 'Update mystery';
+    if (m.image_url) {
+        previewImg.src = m.image_url;
+        uploadPreview.style.display = 'block';
+    } else {
+        previewImg.src = '';
+        uploadPreview.style.display = 'none';
+    }
+    if (answerMarker) { answerMap.removeLayer(answerMarker); answerMarker = null; }
+    if (m.answer?.lat != null) {
+        const latlng = L.latLng(m.answer.lat, m.answer.lng);
+        answerMarker = L.marker(latlng).addTo(answerMap);
+        answerMap.setView(latlng, 8);
+        updateCoordsLabel(latlng);
+    } else {
+        document.getElementById('answer-coords').textContent = 'No location selected';
+    }
+    gameEntries = m.instances.map(inst => ({
+        season_id: inst.season_id,
+        published_at: api.toDatetimeLocal(inst.published_at),
+        reveals_at: api.toDatetimeLocal(inst.reveals_at),
+        instance_id: inst.id
+    }));
+    renderGameEntries();
+    document.getElementById('mystery-form-card').scrollIntoView({ behavior: 'smooth' });
+}
+
+document.getElementById('btn-cancel-mystery').addEventListener('click', resetMysteryForm);
+
+document.getElementById('btn-save-mystery').addEventListener('click', async () => {
+    const saveBtn = document.getElementById('btn-save-mystery');
+    const editTemplateId = document.getElementById('mystery-edit-template-id').value;
+    const title = resolvedLocationName || 'Unknown';
+    const type = document.getElementById('mystery-type').value;
+
+    if (!gameEntries.length || !gameEntries[0].season_id) return showToast('Add at least one game', { type: 'error' });
+
+    for (const ge of gameEntries) {
+        if (!ge.season_id) return showToast('Select a game for each entry', { type: 'error' });
+        if (ge.published_at && ge.reveals_at) {
+            if (new Date(ge.reveals_at) <= new Date(ge.published_at)) return showToast('Reveal time must be after publish time', { type: 'error' });
+            const existing = await api.getMysteriesBySeason(ge.season_id);
+            const others = existing.filter(m => !gameEntries.some(g => g.instance_id === m.id));
+            const overlap = others.find(m => {
+                if (!m.published_at || !m.reveals_at) return false;
+                const pub = new Date(m.published_at);
+                const rev = new Date(m.reveals_at);
+                return new Date(ge.published_at) < new Date(rev.getTime() + 1000) && new Date(ge.reveals_at) > new Date(pub.getTime() - 1000);
+            });
+            if (overlap) {
+                const sName = allSeasonsCache.find(s => s.id === ge.season_id)?.name || '';
+                return showToast(`Overlap in "${sName}": "${overlap.title}" (${api.formatDate(overlap.published_at)} → ${api.formatDate(overlap.reveals_at)})`, { type: 'error', duration: 8000 });
+            }
+        }
+    }
+
+    setButtonLoading(saveBtn, true);
+
+    let imageUrl = document.getElementById('mystery-image-url').value;
+    if (pendingFile) {
+        try { imageUrl = await api.uploadMysteryImage(pendingFile); }
+        catch (err) { setButtonLoading(saveBtn, false); return showToast('Image upload failed: ' + err.message, { type: 'error' }); }
+    }
+
+    const answer = answerMarker
+        ? { lat: answerMarker.getLatLng().lat, lng: answerMarker.getLatLng().lng, location: resolvedLocationLevels }
+        : {};
+
+    const content = { title, type, image_url: imageUrl || null, answer };
+    if (pendingDimensions) {
+        content.image_width = pendingDimensions.width;
+        content.image_height = pendingDimensions.height;
+    }
+
+    try {
+        if (editTemplateId) {
+            await api.updateMysteryContent(editTemplateId, content);
+            for (const ge of gameEntries) {
+                const timing = {
+                    published_at: ge.published_at ? new Date(ge.published_at).toISOString() : null,
+                    reveals_at: ge.reveals_at ? new Date(ge.reveals_at).toISOString() : null
+                };
+                if (ge.instance_id) {
+                    await api.updateMysteryTiming(ge.instance_id, { ...timing, season_id: ge.season_id });
+                } else {
+                    await api.addMysteryToGame(editTemplateId, content, {
+                        season_id: ge.season_id,
+                        published_at: timing.published_at,
+                        reveals_at: timing.reveals_at
+                    });
+                }
+            }
+        } else {
+            const entries = gameEntries.map(ge => ({
+                season_id: ge.season_id,
+                published_at: ge.published_at ? new Date(ge.published_at).toISOString() : null,
+                reveals_at: ge.reveals_at ? new Date(ge.reveals_at).toISOString() : null
+            }));
+            await api.createMysteryInstances(content, entries);
+        }
+        setButtonLoading(saveBtn, false);
+        resetMysteryForm();
+        renderMysteries();
+        showToast('Mystery saved');
+    } catch (err) { setButtonLoading(saveBtn, false); showToast('Save failed: ' + err.message, { type: 'error' }); }
+});
+
+async function renderMysteries() {
+    try {
+        const mysteries = await api.getMysteries();
+        if (!mysteries.length) {
+            mysteriesList.innerHTML = '<div class="empty-state">No mysteries yet. Create one above.</div>';
+            return;
+        }
+        const templates = api.groupByTemplate(mysteries);
+        mysteriesList.innerHTML = `<div class="card"><table class="admin-table">
+            <thead><tr>
+                <th>Place</th><th>Games</th><th>Status</th><th></th>
+            </tr></thead>
+            <tbody>${templates.map(t => {
+                const statuses = [...new Set(t.instances.map(i => api.mysteryStatus(i)))];
+                const gameNames = t.instances.map(i => i.seasons?.name || '—').join(', ');
+                return `<tr class="clickable-row" data-template-id="${t.template_id}">
+                    <td style="font-weight:500">${esc(t.title || '(untitled)')}</td>
+                    <td>${esc(gameNames)} <span style="color:var(--admin-text-secondary)">(${t.instances.length})</span></td>
+                    <td>${statuses.map(st => `<span class="badge badge--${st}">${st}</span>`).join(' ')}</td>
+                    <td class="actions">
+                        <button class="btn btn--plain btn--small btn-edit-template" data-tid="${t.template_id}">Edit</button>
+                        <button class="btn btn--danger btn--small btn-del-template" data-tid="${t.template_id}">Delete</button>
+                    </td>
+                </tr>`;
+            }).join('')}</tbody></table></div>`;
+
+        mysteriesList.querySelectorAll('.btn-edit-template').forEach(btn => {
+            btn.addEventListener('click', (e) => {
+                e.stopPropagation();
+                const t = templates.find(x => x.template_id === btn.dataset.tid);
+                if (t) editTemplate(t);
+            });
+        });
+        mysteriesList.querySelectorAll('.btn-del-template').forEach(btn => {
+            btn.addEventListener('click', (e) => {
+                e.stopPropagation();
+                const t = templates.find(x => x.template_id === btn.dataset.tid);
+                const count = t?.instances?.length || 0;
+                showModal('Delete mystery?', `<p style="color:#616161">This deletes the mystery and all ${count} game instance${count !== 1 ? 's' : ''}, including guesses.</p>`, [
+                    { label: 'Cancel' },
+                    { label: 'Delete', cls: 'btn--danger', fn: async () => { await api.deleteMysteryTemplate(btn.dataset.tid); showToast('Mystery deleted'); renderMysteries(); } }
+                ]);
+            });
+        });
+        mysteriesList.querySelectorAll('.clickable-row').forEach(row => {
+            row.addEventListener('click', (e) => {
+                if (e.target.closest('.btn')) return;
+                const t = templates.find(x => x.template_id === row.dataset.templateId);
+                if (t) editTemplate(t);
+            });
+        });
+    } catch (err) {
+        mysteriesList.innerHTML = `<div class="empty-state">Error: ${esc(err.message)}</div>`;
+    }
+}
+
+initMysteryForm();
+renderMysteries();
+
+// ══════════════════════════════════════════
+// ═══ USERS ═══════════════════════════════
+// ══════════════════════════════════════════
+
+const usersList = document.getElementById('users-list');
+
+async function renderUsers() {
+    try {
+        const users = await api.getUsers();
+        if (!users.length) {
+            usersList.innerHTML = '<div class="empty-state">No users found.</div>';
+            return;
+        }
+        usersList.innerHTML = `<div class="card"><table class="admin-table">
+            <thead><tr>
+                <th>Name</th><th>Email</th><th>Score</th><th>Wins</th><th>Role</th><th></th>
+            </tr></thead>
+            <tbody>${users.map(u => `<tr>
+                <td style="font-weight:500">${esc(u.name || '—')}</td>
+                <td style="color:var(--admin-text-secondary)">${esc(u.email)}</td>
+                <td>${u.total_score}</td>
+                <td>${u.wins}</td>
+                <td>${u.is_admin ? '<span class="badge badge--admin">Admin</span>' : ''}</td>
+                <td class="actions">
+                    <button class="btn btn--plain btn--small btn-rename-user" data-id="${u.id}" data-name="${esc(u.name || '')}">Rename</button>
+                    <button class="btn btn--danger btn--small btn-del-user" data-id="${u.id}" data-name="${esc(u.name || u.email)}">Delete</button>
+                    <button class="btn btn--plain btn--small btn--disabled" title="Coming later">Reset PW</button>
+                </td>
+            </tr>`).join('')}</tbody></table></div>`;
+        usersList.querySelectorAll('.btn-rename-user').forEach(btn => {
+            btn.addEventListener('click', () => {
+                showModal('Rename user', `
+                    <div class="form-group">
+                        <label class="form-label">New name</label>
+                        <input class="form-input" id="modal-rename-input" value="${btn.dataset.name}">
+                    </div>`, [
+                    { label: 'Cancel' },
+                    { label: 'Save', cls: 'btn--primary', fn: async () => {
+                        const newName = document.getElementById('modal-rename-input').value.trim();
+                        if (newName) { await api.updateUserName(btn.dataset.id, newName); showToast('User renamed'); renderUsers(); }
+                    }}
+                ]);
+                setTimeout(() => document.getElementById('modal-rename-input')?.focus(), 100);
+            });
+        });
+        usersList.querySelectorAll('.btn-del-user').forEach(btn => {
+            btn.addEventListener('click', () => {
+                showModal('Delete user?', `<p style="color:var(--admin-text-secondary)">Delete <strong>${btn.dataset.name}</strong>? This removes their profile and all game data.</p>`, [
+                    { label: 'Cancel' },
+                    { label: 'Delete', cls: 'btn--danger', fn: async () => { await api.deleteUser(btn.dataset.id); showToast('User deleted'); renderUsers(); } }
+                ]);
+            });
+        });
+    } catch (err) {
+        usersList.innerHTML = `<div class="empty-state">Error: ${esc(err.message)}</div>`;
+    }
+}
+
+renderUsers();
+
+// ── Util ──
+function esc(str) {
+    const el = document.createElement('span');
+    el.textContent = str;
+    return el.innerHTML;
+}
+</script>
+</body>
+</html>

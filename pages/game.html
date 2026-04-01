@@ -1,0 +1,1155 @@
+<!DOCTYPE html>
+<html lang="no">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Where's Jeff?</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Jost:ital,wght@0,700;0,900;1,700;1,900&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+    <link rel="stylesheet" href="../css/components.css">
+    <script type="module" src="../app.js"></script>
+</head>
+<body>
+
+    <div class="page-loader" id="page-loader"><span class="loader"></span></div>
+
+    <!-- Game chooser (shown if user has multiple games) -->
+    <section class="page-center" id="chooser-section" style="display:none;">
+        <div class="chooser">
+            <div class="banner banner--top banner--from-left">
+                <span class="banner__text">Choose Game</span>
+            </div>
+            <div class="chooser__body">
+                <div class="strip strip--from-right strip--chooser">
+                    <button class="strip__arrow strip__arrow--left" id="chooser-prev"></button>
+                    <span class="strip__text" id="chooser-name"></span>
+                    <button class="strip__arrow strip__arrow--right" id="chooser-next"></button>
+                </div>
+            </div>
+            <div class="banner banner--bottom banner--from-right banner--action banner--pulse" id="btn-go" role="button" tabindex="0">
+                <span class="banner__text">GO!</span>
+            </div>
+        </div>
+    </section>
+
+    <!-- Game content (hidden until game is selected) -->
+    <div id="game-content" style="display:none;">
+
+        <!-- Hero: logo + Jeff (click for admin) + scroll arrow -->
+        <section class="hero" id="hero">
+            <img class="hero__logo" src="../assets/logo.png" alt="Where's Jeff?">
+            <img class="hero__jeff" src="../assets/jeff.png" alt="Jeff the camel" id="jeff-img">
+            <button class="hero__arrow" id="scroll-down" aria-label="Scroll down"></button>
+        </section>
+
+        <!-- Your Stats -->
+        <section class="page-section" id="stats-section">
+            <wheff-card aspect="2.77">
+                <wheff-banner position="top" from="left">Your Stats</wheff-banner>
+                <wheff-field label="Total Score" type="text" placeholder="0" name="total_score" variant="display"></wheff-field>
+                <wheff-field label="Wins" type="text" placeholder="0" name="wins" variant="display"></wheff-field>
+                <wheff-field label="Jeff Karma" type="text" placeholder="0" name="jeff_karma" variant="display"></wheff-field>
+            </wheff-card>
+        </section>
+
+        <!-- Mystery section (current/latest/past — rendered by JS) -->
+        <section class="page-section" id="mystery-section">
+            <div id="mystery-content"></div>
+        </section>
+
+        <!-- Leaderboard -->
+        <section class="page-section" id="leaderboard-section">
+            <div id="leaderboard-content"></div>
+        </section>
+
+        <!-- Past Mysteries world map -->
+        <section class="page-section" id="past-section">
+            <div id="past-content"></div>
+        </section>
+
+    </div>
+
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <script type="module">
+        import { requireAuth, getProfile } from '../lib/auth.js';
+        import {
+            getUserSeasons, getSeasonMysteries, getCurrentMystery, getRevealedMysteries,
+            getNextMysteryInfo, getAppSetting,
+            getGuesses, getUserGuess, submitGuess, subscribeGuesses,
+            getMysteryLeaderboard, getSeasonLeaderboard,
+            formatTimeAgo, formatDistance, formatDistanceShort, formatCountdown, formatCountdownIn, formatMysteryDate,
+            firstName, formatNumber, formatLocationLabel, reverseGeocode
+        } from '../lib/game.js';
+        import { showToast } from '../lib/toast.js';
+
+        // ── Auth ──
+
+        const session = await requireAuth();
+        if (!session) throw new Error('Not authenticated');
+        const userId = session.user.id;
+        const profile = await getProfile();
+        await Promise.all([
+            document.fonts.load('700 1em Jost'),
+            document.fonts.load('900 1em Jost'),
+            document.fonts.load('italic 700 1em Jost'),
+            document.fonts.load('italic 900 1em Jost'),
+        ]);
+        document.getElementById('page-loader')?.remove();
+
+        document.getElementById('scroll-down').addEventListener('click', () => {
+            document.getElementById('stats-section').scrollIntoView({ behavior: 'smooth' });
+        });
+
+        function setBannerLoading(el, loading) {
+            if (loading) {
+                el.classList.add('banner--disabled', 'banner--loading');
+                el.style.animationName = 'none';
+                if (!el.querySelector('.loader')) {
+                    el.insertAdjacentHTML('beforeend', '<span class="loader loader--btn"></span>');
+                }
+            } else {
+                el.classList.remove('banner--disabled', 'banner--loading');
+                el.style.animationName = '';
+                el.querySelector('.loader')?.remove();
+            }
+        }
+
+        function px(vwVal) { return vwVal * window.innerWidth / 100; }
+        const PIN_VW = 3.3;
+        const LINE_WEIGHT_VW = 0.39;
+        const LINE_DASH_VW = 0.7;
+        const LINE_GAP_VW = 0.63;
+        let lastResultData = null;
+
+        function enforceMinZoom(map) {
+            const h = map.getContainer().clientHeight;
+            const minZ = Math.ceil(Math.log2(h / 256));
+            map.setMinZoom(minZ);
+            if (map.getZoom() < minZ) map.setZoom(minZ);
+        }
+
+        function rescaleMapLayers(map) {
+            const p = Math.round(px(PIN_VW)), h = p / 2;
+            const w = px(LINE_WEIGHT_VW);
+            const dash = `${px(LINE_DASH_VW)},${px(LINE_GAP_VW)}`;
+            map.eachLayer(l => {
+                if (l instanceof L.Polyline && !(l instanceof L.Polygon)) l.setStyle({ weight: w, dashArray: dash });
+                if (l instanceof L.Marker) {
+                    try {
+                        const icon = l.getIcon();
+                        if (icon?.options?.className === '') l.setIcon(L.divIcon({ ...icon.options, iconSize: [p, p], iconAnchor: [h, h] }));
+                    } catch(e) {}
+                }
+            });
+        }
+
+        function refreshMapSizes() {
+            if (guessMap) {
+                guessMap.invalidateSize();
+                enforceMinZoom(guessMap);
+                rescaleMapLayers(guessMap);
+            }
+
+            if (resultMap) {
+                rescaleMapLayers(resultMap);
+                enforceMinZoom(resultMap);
+                fitResultMap();
+            }
+
+            if (worldMap) {
+                rescaleMapLayers(worldMap);
+                worldMap.invalidateSize();
+                enforceMinZoom(worldMap);
+                if (lastWorldFit) {
+                    const vwU = window.innerWidth / 100;
+                    const headerOverlap = (8.2 / 2 + 6.5 * 0.84) * vwU;
+                    const stripHeight = 6.5 * 0.84 * vwU;
+                    worldMap.fitBounds(lastWorldFit, {
+                        paddingTopLeft: [30, headerOverlap + 45],
+                        paddingBottomRight: [30, stripHeight + 45]
+                    });
+                }
+            }
+        }
+
+        window.addEventListener('resize', refreshMapSizes);
+
+        if (profile?.is_admin) {
+            const jeff = document.getElementById('jeff-img');
+            jeff.style.cursor = 'pointer';
+            jeff.addEventListener('click', () => { window.location.href = '/pages/admin.html'; });
+        }
+
+        // ── State ──
+
+        let season = null;
+        let mysteries = [];
+        let currentMystery = null;
+        let revealedMysteries = [];
+        let navItems = [];
+        let navPos = 0;
+        let activeChannel = null;
+        let countdownInterval = null;
+        let guessMap = null;
+        let resultMap = null;
+        let worldMap = null;
+        let guessMarker = null;
+        let lastResultFit = null;
+        let lastWorldFit = null;
+        let waitingInterval = null;
+        let sabMarker = null;
+        let sabMode = 'distance';
+        let waitingImages = {};
+        const imageCache = new Map();
+
+        function preloadImage(url) {
+            if (!url) return;
+            if (imageCache.has(url)) return;
+            const img = new Image();
+            img.src = url;
+            imageCache.set(url, img);
+        }
+
+        function preloadAllMysteryImages() {
+            mysteries.forEach(m => preloadImage(m.image_url));
+            Object.values(waitingImages).forEach(url => preloadImage(url));
+        }
+
+        const mapDefaults = {
+            zoomControl: false,
+            attributionControl: false,
+            scrollWheelZoom: false,
+            maxZoom: 22,
+            minZoom: 0,
+            maxBounds: [[-85, -360], [85, 360]],
+            maxBoundsViscosity: 1.0
+        };
+
+        // ── Init ──
+
+        try {
+            const types = ['location', 'time', 'film', 'cyber'];
+            const imgs = await Promise.all(types.map(t => getAppSetting(`waiting_image_${t}`)));
+            types.forEach((t, i) => { if (imgs[i]) waitingImages[t] = imgs[i]; });
+        } catch(e) {}
+        const allSeasons = await getUserSeasons(userId);
+        let chooserIdx = 0;
+        const hasMultipleGames = allSeasons.length > 1;
+
+        if (hasMultipleGames) {
+            setupChooser(allSeasons);
+            openChooser();
+        } else {
+            season = allSeasons[0] || null;
+            await initGame();
+        }
+
+        function setupChooser(seasons) {
+            function updateChooser() {
+                document.getElementById('chooser-name').textContent = seasons[chooserIdx].name;
+                document.getElementById('chooser-prev').style.display = chooserIdx > 0 ? '' : 'none';
+                document.getElementById('chooser-next').style.display = chooserIdx < seasons.length - 1 ? '' : 'none';
+            }
+
+            document.getElementById('chooser-prev').addEventListener('click', () => {
+                if (chooserIdx > 0) { chooserIdx--; updateChooser(); }
+            });
+
+            document.getElementById('chooser-next').addEventListener('click', () => {
+                if (chooserIdx < seasons.length - 1) { chooserIdx++; updateChooser(); }
+            });
+
+            document.getElementById('btn-go').addEventListener('click', async () => {
+                const goBtn = document.getElementById('btn-go');
+                setBannerLoading(goBtn, true);
+                season = seasons[chooserIdx];
+                await initGame();
+            });
+
+            document.querySelector('.hero__logo').style.cursor = 'pointer';
+            document.querySelector('.hero__logo').addEventListener('click', openChooser);
+
+            updateChooser();
+        }
+
+        function openChooser() {
+            cleanupMystery();
+            if (worldMap) { worldMap.remove(); worldMap = null; }
+            document.getElementById('game-content').style.display = 'none';
+            document.getElementById('chooser-section').style.display = '';
+            const goBtn = document.getElementById('btn-go');
+            setBannerLoading(goBtn, false);
+            window.scrollTo(0, 0);
+        }
+
+        function updateBottomPadding() {
+            const dynamicSections = ['mystery-section', 'leaderboard-section', 'past-section'];
+            let lastVisible = document.getElementById('stats-section');
+            for (const id of dynamicSections) {
+                const el = document.getElementById(id);
+                const content = el.querySelector('div');
+                const hasContent = content && content.innerHTML.trim();
+                el.style.display = hasContent ? '' : 'none';
+                el.style.paddingBottom = '';
+                if (hasContent) lastVisible = el;
+            }
+            if (lastVisible) lastVisible.style.paddingBottom = 'var(--section-gap)';
+        }
+
+        async function initGame() {
+            document.getElementById('chooser-section').style.display = 'none';
+            document.getElementById('game-content').style.display = '';
+
+            if (season) {
+                mysteries = await getSeasonMysteries(season.id);
+                currentMystery = getCurrentMystery(mysteries);
+                revealedMysteries = getRevealedMysteries(mysteries);
+            }
+
+            checkReturnToasts();
+            preloadAllMysteryImages();
+
+            buildNavItems();
+            await renderMysteryAtPosition();
+            await renderLeaderboard();
+            await renderPastMysteries();
+            populateStats();
+            updateBottomPadding();
+        }
+
+        function checkReturnToasts() {
+            const key = `wheff_last_visit_${season?.id || ''}`;
+            const lastVisit = localStorage.getItem(key);
+            const now = new Date().toISOString();
+            localStorage.setItem(key, now);
+            if (!lastVisit) return;
+
+            const lastDate = new Date(lastVisit);
+
+            if (currentMystery && new Date(currentMystery.published_at) > lastDate) {
+                setTimeout(() => showToast('New mystery available'), 1500);
+            }
+
+            const newlyRevealed = revealedMysteries.filter(m =>
+                new Date(m.reveals_at) > lastDate
+            );
+            if (newlyRevealed.length === 1) {
+                setTimeout(() => showToast('Mystery revealed'), 1500);
+            } else if (newlyRevealed.length > 1) {
+                setTimeout(() => showToast(`${newlyRevealed.length} mysteries revealed`), 1500);
+            }
+        }
+
+        function enablePinchZoom(map) {
+            map.getContainer().addEventListener('wheel', function(e) {
+                if (e.ctrlKey || e.metaKey) {
+                    map.scrollWheelZoom.enable();
+                } else {
+                    map.scrollWheelZoom.disable();
+                }
+            }, true);
+        }
+
+        // ── Navigation Model ──
+
+        function buildNavItems() {
+            navItems = [];
+            if (currentMystery) {
+                navItems.push({ mystery: currentMystery, type: 'current' });
+            } else if (revealedMysteries.length) {
+                navItems.push({ mystery: null, type: 'next' });
+            }
+            if (revealedMysteries.length) {
+                revealedMysteries.forEach((m, i) => {
+                    navItems.push({ mystery: m, type: (i === 0) ? 'latest' : 'past' });
+                });
+                navPos = currentMystery ? 0 : 1;
+            } else if (!currentMystery) {
+                navItems.push({ mystery: null, type: 'first' });
+                navPos = 0;
+            } else {
+                navPos = 0;
+            }
+        }
+
+        // ── Header Builder ──
+
+        function makeHeader(type, mystery, extraLabel) {
+            const titles = { current: 'CURRENT MYSTERY', latest: 'LATEST MYSTERY', past: 'PAST MYSTERY', next: 'NEXT MYSTERY', first: 'FIRST MYSTERY' };
+            const canGoOlder = navPos < navItems.length - 1;
+            const canGoNewer = navPos > 0;
+
+            let labelHTML;
+            if (type === 'current') {
+                labelHTML = `<span class="strip__text" id="countdown">${formatCountdown(mystery.reveals_at) || ''}</span>`;
+            } else if (type === 'next' || type === 'first') {
+                labelHTML = `<span class="strip__text" id="countdown">${extraLabel || ''}</span>`;
+            } else {
+                const dateStr = formatMysteryDate(mystery.reveals_at || mystery.published_at);
+                labelHTML = `<span class="strip__text">${dateStr}</span>`;
+            }
+
+            return `
+                <div class="mystery-header">
+                    <div class="banner banner--top banner--from-right">
+                        <span class="banner__text">${titles[type]}</span>
+                    </div>
+                    <div class="mystery-header__card">
+                        <div class="strip strip--from-right">
+                            ${canGoOlder ? '<button class="strip__arrow strip__arrow--left" id="nav-prev"></button>' : ''}
+                            ${labelHTML}
+                            ${canGoNewer ? '<button class="strip__arrow strip__arrow--right" id="nav-next"></button>' : ''}
+                        </div>
+                    </div>
+                </div>`;
+        }
+
+        function makeImageHTML(mystery, stripText, stripId) {
+            if (!mystery.image_url) return '';
+            const ar = (mystery.image_width && mystery.image_height)
+                ? `style="aspect-ratio:${mystery.image_width}/${mystery.image_height}"`
+                : '';
+            const idAttr = stripId ? ` id="${stripId}"` : '';
+            return `
+                <div class="mystery__image" ${ar}>
+                    <img src="${mystery.image_url}" alt="Mystery">
+                    <div class="edge-wrapper edge-wrapper--strip edge-wrapper--from-left">
+                        <div class="strip strip--from-left"><span class="strip__text"${idAttr}>${stripText}</span></div>
+                    </div>
+                </div>`;
+        }
+
+        // ── Render at Current Position ──
+
+        async function renderMysteryAtPosition() {
+            cleanupMystery();
+            const container = document.getElementById('mystery-content');
+
+            if (!navItems.length) {
+                container.innerHTML = '';
+                return;
+            }
+
+            const { mystery, type } = navItems[navPos];
+
+            if (type === 'next' || type === 'first') {
+                await renderNextView(container, type);
+            } else if (type === 'current') {
+                const userGuess = await getUserGuess(mystery.id, userId);
+                if (userGuess) {
+                    await renderSubmittedView(container, mystery, userGuess);
+                } else {
+                    await renderLiveView(container, mystery);
+                }
+            } else {
+                await renderRevealedView(container, mystery, type);
+            }
+
+            attachNavHandlers();
+        }
+
+        function attachNavHandlers() {
+            const prevBtn = document.getElementById('nav-prev');
+            const nextBtn = document.getElementById('nav-next');
+            if (prevBtn) prevBtn.addEventListener('click', () => { navPos++; renderMysteryAtPosition(); });
+            if (nextBtn) nextBtn.addEventListener('click', () => { navPos--; renderMysteryAtPosition(); });
+        }
+
+        // ── Live Mystery View ──
+
+        async function renderLiveView(container, mystery) {
+            const answer = mystery.answer;
+            const guesses = await getGuesses(mystery.id);
+
+            container.innerHTML = `
+                <div class="mystery">
+                    ${makeHeader('current', mystery)}
+                    ${makeImageHTML(mystery, 'Make a guess!')}
+                    <div style="position:relative;">
+                        <div class="mystery__map" id="guess-map-container"></div>
+                        <div class="edge-wrapper edge-wrapper--banner edge-wrapper--from-right" style="top:auto;bottom:0;">
+                            <div class="banner banner--from-right banner--action banner--disabled"
+                                 id="submit-btn" role="button" tabindex="0">
+                                <span class="banner__text">SUBMIT</span>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="mystery__submitted" id="submitted-list">
+                        <div class="mystery__submitted-header">Time</div>
+                        ${guesses.length ? guesses.map(g => submittedRow(g, mystery.published_at)).join('') : waitingPlaceholderHTML()}
+                    </div>
+                </div>
+            `;
+
+            startCountdown(mystery, async () => {
+                const lat = (Math.random() * 180) - 90;
+                const lng = (Math.random() * 360) - 180;
+                try { await submitGuess(mystery.id, lat, lng, answer.lat, answer.lng, mystery.published_at, mystery.reveals_at); } catch(e) {}
+            });
+            initGuessMap(answer);
+            if (!guesses.length) startWaitingPlaceholder(mystery.published_at);
+
+            const submitBanner = document.getElementById('submit-btn');
+            if (submitBanner) {
+                submitBanner.addEventListener('click', async () => {
+                    if (!guessMarker) return;
+                    const ll = guessMarker.getLatLng();
+                    setBannerLoading(submitBanner, true);
+                    try {
+                        await submitGuess(mystery.id, ll.lat, ll.lng, answer.lat, answer.lng, mystery.published_at, mystery.reveals_at);
+                        await renderMysteryAtPosition();
+                    } catch (e) {
+                        showToast('Could not submit guess', { type: 'error' });
+                        setBannerLoading(submitBanner, false);
+                    }
+                });
+            }
+
+            activeChannel = subscribeGuesses(mystery.id, (newGuess) => {
+                removeWaitingPlaceholder();
+                const list = document.getElementById('submitted-list');
+                if (!list || list.querySelector(`[data-user="${newGuess.user_id}"]`)) return;
+                const row = document.createElement('div');
+                row.innerHTML = submittedRow(newGuess, mystery.published_at, true);
+                list.appendChild(row.firstElementChild);
+            });
+        }
+
+        function initGuessMap(answer) {
+            const mapEl = document.getElementById('guess-map-container');
+            if (!mapEl) return;
+            guessMap = L.map(mapEl, mapDefaults).setView([30, 0], 2);
+            enablePinchZoom(guessMap);
+            L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
+                attribution: '&copy; OSM',
+                maxNativeZoom: 19,
+                maxZoom: 22
+            }).addTo(guessMap);
+
+            const gPinPx = Math.round(px(PIN_VW));
+            const gPinHalf = gPinPx / 2;
+            const initial = firstName(profile.name).charAt(0).toUpperCase();
+            const guessIcon = L.divIcon({ className: '', html: `<div class="world-pin" style="background:#000;">${initial}</div>`, iconSize: [gPinPx, gPinPx], iconAnchor: [gPinHalf, gPinHalf] });
+
+            guessMarker = null;
+            guessMap.on('click', (e) => {
+                if (guessMarker) {
+                    guessMarker.setLatLng(e.latlng);
+                } else {
+                    guessMarker = L.marker(e.latlng, { icon: guessIcon, draggable: true }).addTo(guessMap);
+                }
+                const submitBtn = document.getElementById('submit-btn');
+                if (submitBtn) {
+                    submitBtn.classList.remove('banner--disabled');
+                    submitBtn.classList.add('banner--pulse');
+                }
+            });
+
+            addMapTint(mapEl);
+            setTimeout(() => { guessMap.invalidateSize(); enforceMinZoom(guessMap); }, 200);
+        }
+
+        // ── Next Mystery View ──
+
+        async function renderNextView(container, type = 'next') {
+            let nextInfo = null;
+            try { nextInfo = await getNextMysteryInfo(season.id); } catch(e) {}
+            const nextStart = nextInfo?.published_at || null;
+            const nextType = nextInfo?.type || 'location';
+
+            const countdownText = nextStart ? (formatCountdownIn(nextStart) || '') : 'STARTING SOON!';
+            const waitingImg = waitingImages[nextType] || waitingImages.location || null;
+
+            container.innerHTML = `
+                <div class="mystery">
+                    ${makeHeader(type, null, countdownText)}
+                    ${waitingImg ? `
+                    <div class="mystery__image">
+                        <img src="${waitingImg}" alt="Waiting">
+                    </div>` : ''}
+                </div>
+            `;
+
+            if (nextStart) {
+                requestAnimationFrame(() => {
+                    const el = document.getElementById('countdown');
+                    if (!el) return;
+                    const strip = el.closest('.strip');
+                    if (strip) {
+                        strip.style.width = (strip.offsetWidth / window.innerWidth * 100) + 'vw';
+                        strip.style.justifyContent = 'flex-end';
+                    }
+                });
+                countdownInterval = setInterval(() => {
+                    const el = document.getElementById('countdown');
+                    if (!el) return;
+                    const text = formatCountdownIn(nextStart);
+                    if (text) { el.textContent = text; }
+                    else {
+                        clearInterval(countdownInterval);
+                        showToast('New mystery available');
+                        reloadMysteries();
+                    }
+                }, 1000);
+            }
+        }
+
+        // ── Submitted (awaiting reveal) View ──
+
+        async function renderSubmittedView(container, mystery, userGuess) {
+            const guesses = await getGuesses(mystery.id);
+
+            container.innerHTML = `
+                <div class="mystery">
+                    ${makeHeader('current', mystery)}
+                    ${makeImageHTML(mystery, 'Your guess')}
+                    <div style="position:relative;">
+                        <div class="mystery__map" id="guess-map-container"></div>
+                        <div class="edge-wrapper edge-wrapper--strip edge-wrapper--from-right" style="top:auto;bottom:0;">
+                            <div class="strip strip--from-right"><span class="strip__text">SUBMITTED</span></div>
+                        </div>
+                    </div>
+                    <div class="mystery__submitted" id="submitted-list">
+                        <div class="mystery__submitted-header">Time</div>
+                        ${guesses.length ? guesses.map(g => submittedRow(g, mystery.published_at)).join('') : waitingPlaceholderHTML()}
+                    </div>
+                </div>
+            `;
+
+            startCountdown(mystery);
+            initSubmittedMap(userGuess);
+            if (!guesses.length) startWaitingPlaceholder(mystery.published_at);
+
+            activeChannel = subscribeGuesses(mystery.id, (newGuess) => {
+                removeWaitingPlaceholder();
+                const list = document.getElementById('submitted-list');
+                if (!list || list.querySelector(`[data-user="${newGuess.user_id}"]`)) return;
+                const row = document.createElement('div');
+                row.innerHTML = submittedRow(newGuess, mystery.published_at, true);
+                list.appendChild(row.firstElementChild);
+            });
+        }
+
+        function initSubmittedMap(userGuess) {
+            const mapEl = document.getElementById('guess-map-container');
+            if (!mapEl) return;
+            const lat = userGuess.guess_lat ?? userGuess.guess?.lat;
+            const lng = userGuess.guess_lng ?? userGuess.guess?.lng;
+            if (lat == null || lng == null) return;
+
+            guessMap = L.map(mapEl, mapDefaults).setView([lat, lng], 8);
+            enablePinchZoom(guessMap);
+            L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
+                attribution: '&copy; OSM',
+                maxNativeZoom: 19,
+                maxZoom: 22
+            }).addTo(guessMap);
+
+            const sPinPx = Math.round(px(PIN_VW));
+            const sPinH = sPinPx / 2;
+            const initial = firstName(profile.name).charAt(0).toUpperCase();
+            const icon = L.divIcon({ className: '', html: `<div class="world-pin" style="background:#000;">${initial}</div>`, iconSize: [sPinPx, sPinPx], iconAnchor: [sPinH, sPinH] });
+            L.marker([lat, lng], { icon, interactive: false }).addTo(guessMap);
+
+            addMapTint(mapEl);
+            setTimeout(() => { guessMap.invalidateSize(); enforceMinZoom(guessMap); }, 200);
+        }
+
+        // ── Revealed Mystery View ──
+
+        async function renderRevealedView(container, mystery, type) {
+            const answer = mystery.answer;
+            const leaderboard = await getMysteryLeaderboard(mystery.id, mystery.published_at);
+            const userEntry = leaderboard.find(e => e.user_id === userId);
+            let selectedEntry = userEntry || leaderboard[0] || null;
+
+            const resultLabel = !userEntry
+                ? 'NO GUESS'
+                : selectedEntry.user_id === userId ? 'YOUR RESULT' : `${firstName(selectedEntry.name)}'S RESULT`;
+            const scoreText = !userEntry ? 'SCORE: 0' : `SCORE: ${formatNumber(selectedEntry.score)}`;
+
+            container.innerHTML = `
+                <div class="mystery">
+                    ${makeHeader(type, mystery)}
+                    ${makeImageHTML(mystery, resultLabel, 'result-label')}
+                    <div style="position:relative;">
+                        <div class="mystery__map" id="result-map-container"></div>
+                        <div class="edge-wrapper edge-wrapper--strip edge-wrapper--from-right" style="top:auto;bottom:0;">
+                            <div class="strip strip--from-right"><span class="strip__text" id="score-banner-text">${scoreText}</span></div>
+                        </div>
+                    </div>
+                    <div class="mystery__submitted mystery__submitted--revealed" id="results-table">
+                        <div class="results-header">
+                            <span class="results-header__col results-header__col--time">Time</span>
+                            <span class="results-header__col results-header__col--distance">Distance</span>
+                            <span class="results-header__col results-header__col--score">Score</span>
+                        </div>
+                        ${leaderboard.map(e => resultRow(e, selectedEntry)).join('')}
+                    </div>
+                </div>
+            `;
+
+            if (answer?.lat != null) {
+                initResultMap(answer, selectedEntry);
+            }
+
+            document.querySelectorAll('.mystery__results-row').forEach(row => {
+                row.addEventListener('click', () => {
+                    const entry = leaderboard.find(e => e.user_id === row.dataset.user);
+                    if (!entry) return;
+                    selectedEntry = entry;
+                    updateResultView(answer, entry);
+                    const label = document.getElementById('result-label');
+                    if (label) label.scrollIntoView({ behavior: 'smooth' });
+                });
+            });
+        }
+
+        // ── Countdown ──
+
+        function startCountdown(mystery, onExpire) {
+            if (!mystery.reveals_at) return;
+            requestAnimationFrame(() => {
+                const el = document.getElementById('countdown');
+                if (!el) return;
+                const strip = el.closest('.strip');
+                if (strip) {
+                    strip.style.width = (strip.offsetWidth / window.innerWidth * 100) + 'vw';
+                    strip.style.justifyContent = 'flex-end';
+                }
+            });
+            countdownInterval = setInterval(async () => {
+                const el = document.getElementById('countdown');
+                if (!el) return;
+                const text = formatCountdown(mystery.reveals_at);
+                if (text) { el.textContent = text; }
+                else {
+                    clearInterval(countdownInterval);
+                    if (onExpire) await onExpire();
+                    showToast('Mystery revealed');
+                    reloadMysteries();
+                }
+            }, 1000);
+        }
+
+        // ── Result Map ──
+
+        function initResultMap(answer, entry) {
+            const mapEl = document.getElementById('result-map-container');
+            if (!mapEl) return;
+            resultMap = L.map(mapEl, mapDefaults).setView([answer.lat, answer.lng], 5);
+            enablePinchZoom(resultMap);
+            L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
+                attribution: '&copy; OSM',
+                maxNativeZoom: 19,
+                maxZoom: 22
+            }).addTo(resultMap);
+
+            addMapTint(mapEl);
+
+            resultMap.on('click', () => {
+                if (sabMode !== 'distance' && lastResultData) resetSab(lastResultData.entry);
+            });
+
+            drawResultPins(answer, entry);
+            setTimeout(() => { resultMap.invalidateSize(); enforceMinZoom(resultMap); }, 200);
+        }
+
+        function setSabContent(text) {
+            if (!sabMarker) return;
+            const label = sabMarker.getElement()?.querySelector('.mystery__distance-label');
+            if (!label) return;
+            const span = label.querySelector('span:not(.loader)');
+            const loader = label.querySelector('.loader');
+            if (loader) loader.remove();
+            label.style.minWidth = '';
+            label.style.minHeight = '';
+            if (span) { span.style.display = ''; span.textContent = text; }
+        }
+
+        function setSabLoading() {
+            if (!sabMarker) return;
+            const label = sabMarker.getElement()?.querySelector('.mystery__distance-label');
+            if (!label) return;
+            label.style.minWidth = label.offsetWidth + 'px';
+            label.style.minHeight = label.offsetHeight + 'px';
+            const span = label.querySelector('span:not(.loader)');
+            if (span) span.style.display = 'none';
+            if (!label.querySelector('.loader')) {
+                label.insertAdjacentHTML('beforeend', '<span class="loader loader--sab"></span>');
+            }
+        }
+
+        function resetSab(entry) {
+            sabMode = 'distance';
+            setSabContent(formatDistance(entry.distance_m));
+        }
+
+        function drawResultPins(answer, entry) {
+            if (!resultMap) return;
+            lastResultData = { answer, entry };
+            sabMode = 'distance';
+            resultMap.eachLayer(l => {
+                if (l instanceof L.Marker || l instanceof L.Polyline || l instanceof L.CircleMarker) resultMap.removeLayer(l);
+            });
+            sabMarker = null;
+
+            const pinPx = Math.round(px(PIN_VW));
+            const pinH = pinPx / 2;
+            const answerIcon = L.divIcon({ className: '', html: `<div class="world-pin world-pin--j" style="background:#BA0000;cursor:pointer;">J</div>`, iconSize: [pinPx, pinPx], iconAnchor: [pinH, pinH] });
+            const answerLL = [answer.lat, answer.lng];
+            const answerMarker = L.marker(answerLL, { icon: answerIcon, zIndexOffset: 500 }).addTo(resultMap);
+
+            answerMarker.on('click', (e) => {
+                L.DomEvent.stopPropagation(e);
+                const loc = formatLocationLabel(answer.location);
+                sabMode = 'answer';
+                setSabContent(loc);
+            });
+
+            const guessLL = [entry?.guess?.lat, entry?.guess?.lng];
+            if (guessLL[0] == null) {
+                resultMap.setView(answerLL, 5);
+                return;
+            }
+
+            let gLng = guessLL[1];
+            while (gLng - answer.lng > 180) gLng -= 360;
+            while (gLng - answer.lng < -180) gLng += 360;
+            guessLL[1] = gLng;
+
+            const guessInitial = firstName(entry.name).charAt(0).toUpperCase();
+            const guessIcon = L.divIcon({ className: '', html: `<div class="world-pin" style="background:#000;cursor:pointer;">${guessInitial}</div>`, iconSize: [pinPx, pinPx], iconAnchor: [pinH, pinH] });
+            const guessMarkerResult = L.marker(guessLL, { icon: guessIcon, zIndexOffset: 500 }).addTo(resultMap);
+
+            guessMarkerResult.on('click', async (e) => {
+                L.DomEvent.stopPropagation(e);
+                const guess = entry.guess;
+                if (guess && (!guess.location || !guess.location.length) && guess.lat != null) {
+                    sabMode = 'guess';
+                    setSabLoading();
+                    guess.location = await reverseGeocode(guess.lat, guess.lng);
+                }
+                sabMode = 'guess';
+                setSabContent(formatLocationLabel(guess?.location));
+            });
+
+            const w = px(LINE_WEIGHT_VW);
+            const d = `${px(LINE_DASH_VW)},${px(LINE_GAP_VW)}`;
+            L.polyline([guessLL, answerLL], { color: '#fff', weight: w, dashArray: d, lineCap: 'butt' }).addTo(resultMap);
+
+            const pA = L.CRS.EPSG3857.project(L.latLng(answerLL[0], answerLL[1]));
+            const pG = L.CRS.EPSG3857.project(L.latLng(guessLL[0], guessLL[1]));
+            const midProjected = L.point((pA.x + pG.x) / 2, (pA.y + pG.y) / 2);
+            const midLL = L.CRS.EPSG3857.unproject(midProjected);
+            sabMarker = L.marker([midLL.lat, midLL.lng], {
+                icon: L.divIcon({
+                    className: 'mystery__distance-wrapper',
+                    html: `<div class="mystery__distance-label mystery__distance-label--interactive"><span>${formatDistance(entry.distance_m)}</span></div>`,
+                    iconSize: [0, 0],
+                    iconAnchor: [0, 0]
+                }),
+                zIndexOffset: 1000
+            }).addTo(resultMap);
+
+            sabMarker.on('click', (e) => {
+                L.DomEvent.stopPropagation(e);
+                if (sabMode !== 'distance') resetSab(entry);
+            });
+
+            const metersPerPx = (z) => 156543.03 * Math.cos(midLL.lat * Math.PI / 180) / Math.pow(2, z);
+            let idealZoom = 22;
+            while (idealZoom > 2 && entry.distance_m / metersPerPx(idealZoom) < 140) idealZoom--;
+
+            lastResultFit = { bounds: L.latLngBounds([answerLL, guessLL]), maxZoom: idealZoom };
+            fitResultMap();
+        }
+
+        function fitResultMap() {
+            if (!resultMap || !lastResultFit) return;
+            const vw = window.innerWidth / 100;
+            const stripHalf = (6.5 * 0.84 / 2) * vw;
+            resultMap.invalidateSize();
+            resultMap.fitBounds(lastResultFit.bounds, {
+                paddingTopLeft: [60, stripHalf + 45],
+                paddingBottomRight: [60, stripHalf + 45],
+                maxZoom: lastResultFit.maxZoom
+            });
+        }
+
+        function updateResultView(answer, entry) {
+            const label = document.getElementById('result-label');
+            if (label) label.textContent = entry.user_id === userId ? 'YOUR RESULT' : `${firstName(entry.name)}'S RESULT`;
+
+            const scoreEl = document.getElementById('score-banner-text');
+            if (scoreEl) scoreEl.textContent = entry?.score != null ? `SCORE: ${formatNumber(entry.score)}` : '';
+
+            document.querySelectorAll('.mystery__results-row').forEach(row => {
+                row.classList.toggle('mystery__results-row--active', row.dataset.user === entry.user_id);
+            });
+
+            drawResultPins(answer, entry);
+        }
+
+        // ── Cleanup & Reload ──
+
+        function cleanupMystery() {
+            if (activeChannel) { activeChannel.unsubscribe(); activeChannel = null; }
+            if (countdownInterval) { clearInterval(countdownInterval); countdownInterval = null; }
+            if (waitingInterval) { clearInterval(waitingInterval); waitingInterval = null; }
+            if (guessMap) { guessMap.remove(); guessMap = null; }
+            if (resultMap) { resultMap.remove(); resultMap = null; }
+            guessMarker = null;
+            sabMarker = null;
+            sabMode = 'distance';
+            lastResultFit = null;
+            lastResultData = null;
+        }
+
+        async function reloadMysteries() {
+            if (!season) return;
+            mysteries = await getSeasonMysteries(season.id);
+            currentMystery = getCurrentMystery(mysteries);
+            revealedMysteries = getRevealedMysteries(mysteries);
+            preloadAllMysteryImages();
+            buildNavItems();
+            await renderMysteryAtPosition();
+            await renderLeaderboard();
+            await renderPastMysteries();
+            populateStats();
+            updateBottomPadding();
+        }
+
+        // ── Past Mysteries World Map ──
+
+        async function renderPastMysteries() {
+            const container = document.getElementById('past-content');
+            if (!revealedMysteries.length) { container.innerHTML = ''; return; }
+
+            const locations = revealedMysteries.filter(m => m.answer?.lat != null).reverse();
+
+            container.innerHTML = `
+                <div class="mystery" style="width: var(--card-width);">
+                    <div class="mystery-header">
+                        <div class="banner banner--top banner--from-right">
+                            <span class="banner__text">Past Mysteries</span>
+                        </div>
+                        <div class="mystery-header__card">
+                            <div class="strip strip--from-right"><span class="strip__text">THE MANY TRAVELS OF JEFF</span></div>
+                        </div>
+                    </div>
+                    <div style="position:relative;">
+                        <div class="world-map" id="world-map-container"></div>
+                        <div class="edge-wrapper edge-wrapper--strip edge-wrapper--from-left" style="top:auto;bottom:0;transform:none;">
+                            <div class="strip strip--from-left"><span class="strip__text">${locations.length} DESTINATION${locations.length !== 1 ? 'S' : ''}</span></div>
+                        </div>
+                    </div>
+                </div>
+            `;
+
+            const mapEl = document.getElementById('world-map-container');
+            if (!mapEl) return;
+            worldMap = L.map(mapEl, mapDefaults).setView([20, 0], 2);
+            enablePinchZoom(worldMap);
+            L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', { attribution: '&copy; OSM' }).addTo(worldMap);
+            addMapTint(mapEl);
+
+            const rawPoints = locations.map(m => [m.answer.lat, m.answer.lng]);
+            const points = [rawPoints[0]];
+            for (let i = 1; i < rawPoints.length; i++) {
+                let lng = rawPoints[i][1];
+                const prevLng = points[i - 1][1];
+                while (lng - prevLng > 180) lng -= 360;
+                while (lng - prevLng < -180) lng += 360;
+                points.push([rawPoints[i][0], lng]);
+            }
+
+            let dataBounds = null;
+            const wLnW = px(LINE_WEIGHT_VW);
+            const wDash = `${px(LINE_DASH_VW)},${px(LINE_GAP_VW)}`;
+            if (points.length > 1) {
+                for (let i = 0; i < points.length - 1; i++) {
+                    L.polyline([points[i], points[i + 1]], {
+                        color: '#fff', weight: wLnW, dashArray: wDash, lineCap: 'butt', opacity: 1
+                    }).addTo(worldMap);
+                }
+                dataBounds = L.latLngBounds(points);
+            }
+
+            const wPinPx = Math.round(px(PIN_VW));
+            const wPinH = wPinPx / 2;
+            locations.forEach((m, i) => {
+                const num = i + 1;
+                const pinIcon = L.divIcon({
+                    className: '',
+                    html: `<div class="world-pin">${num}</div>`,
+                    iconSize: [wPinPx, wPinPx],
+                    iconAnchor: [wPinH, wPinH]
+                });
+                const marker = L.marker(points[i], { icon: pinIcon, zIndexOffset: 500 }).addTo(worldMap);
+                marker.on('click', () => {
+                    const idx = navItems.findIndex(item => item.mystery?.id === m.id);
+                    if (idx >= 0) {
+                        navPos = idx;
+                        renderMysteryAtPosition();
+                        const el = document.getElementById('mystery-section');
+                        el.style.scrollMarginTop = 'calc(var(--section-gap) / 2)';
+                        el.scrollIntoView({ behavior: 'smooth' });
+                    }
+                });
+            });
+
+            lastWorldFit = dataBounds;
+            function fitWorldMap() {
+                if (!worldMap || !lastWorldFit) return;
+                const vw = window.innerWidth / 100;
+                const headerOverlap = (8.2 / 2 + 6.5 * 0.84) * vw;
+                const stripHeight = 6.5 * 0.84 * vw;
+                worldMap.invalidateSize();
+                worldMap.fitBounds(lastWorldFit, {
+                    paddingTopLeft: [30, headerOverlap + 45],
+                    paddingBottomRight: [30, stripHeight + 45]
+                });
+                const center = lastWorldFit.getCenter();
+                worldMap.setMaxBounds([[-85, center.lng - 360], [85, center.lng + 360]]);
+            }
+            setTimeout(() => { fitWorldMap(); enforceMinZoom(worldMap); }, 100);
+            setTimeout(() => { fitWorldMap(); enforceMinZoom(worldMap); }, 400);
+        }
+
+        // ── Leaderboard ──
+
+        async function renderLeaderboard() {
+            const container = document.getElementById('leaderboard-content');
+            if (!season) { container.innerHTML = ''; return; }
+
+            const board = await getSeasonLeaderboard(season.id);
+            if (!board.length) { container.innerHTML = ''; return; }
+
+            container.innerHTML = `
+                <div class="mystery" style="width: var(--card-width);">
+                    <div class="mystery-header">
+                        <div class="banner banner--top banner--from-left">
+                            <span class="banner__text">Leaderboard</span>
+                        </div>
+                        <div class="mystery-header__card" style="justify-content:flex-start;">
+                            <div class="strip strip--from-left"><span class="strip__text">${season.name}</span></div>
+                        </div>
+                    </div>
+                    <div class="mystery__submitted mystery__submitted--leaderboard">
+                        <div class="results-header results-header--leaderboard">
+                            <span class="results-header__col results-header__col--pos">Rank</span>
+                            <span class="results-header__col results-header__col--score">Score</span>
+                            <span class="results-header__col results-header__col--wins">Wins</span>
+                            <span class="results-header__col results-header__col--trend">Trend</span>
+                        </div>
+                        ${board.map((entry, i) => `
+                        <div class="mystery__submitted-row">
+                            <span class="mystery__submitted-name">${firstName(entry.name)}</span>
+                            <div class="results-strip results-strip--leaderboard">
+                                <div class="submitted-strip__bg"></div>
+                                <span class="results-strip__col results-strip__col--pos">${i + 1}</span>
+                                <span class="results-strip__col results-strip__col--score">${formatNumber(entry.total_score)}</span>
+                                <span class="results-strip__col results-strip__col--wins">${entry.wins}</span>
+                                <span class="results-strip__col results-strip__col--trend">${entry.trend}</span>
+                            </div>
+                        </div>`).join('')}
+                    </div>
+                </div>
+            `;
+        }
+
+        // ── Stats ──
+
+        async function populateStats() {
+            if (!season) return;
+            const board = await getSeasonLeaderboard(season.id);
+            const myEntry = board.find(e => e.user_id === userId);
+
+            function setField(name, value) {
+                const field = document.querySelector(`wheff-field[name="${name}"]`);
+                if (!field) return;
+                const waitForInput = () => {
+                    const input = field.querySelector('.field__input');
+                    if (!input) return setTimeout(waitForInput, 100);
+                    input.value = value;
+                };
+                waitForInput();
+            }
+
+            setField('total_score', formatNumber(myEntry?.total_score ?? 0));
+            setField('wins', myEntry?.wins ?? 0);
+            const karma = myEntry?.jeff_karma ?? 0;
+            setField('jeff_karma', (karma > 0 ? '+' : '') + formatNumber(karma));
+        }
+
+        // ── Map Tint ──
+
+        function addMapTint(el) {
+            const pane = el.querySelector('.leaflet-map-pane');
+            if (!pane) return;
+            const tint = document.createElement('div');
+            tint.className = 'map-tint';
+            pane.appendChild(tint);
+        }
+
+        // ── HTML Helpers ──
+
+        function resultRow(entry, selectedEntry) {
+            const isActive = entry.user_id === selectedEntry?.user_id;
+            return `
+                <div class="mystery__submitted-row mystery__results-row ${isActive ? 'mystery__results-row--active' : ''}" data-user="${entry.user_id}">
+                    <div class="results-strip">
+                        <div class="submitted-strip__bg"></div>
+                        <span class="results-strip__col results-strip__col--time">${entry.time}</span>
+                        <span class="results-strip__col results-strip__col--distance">${formatDistanceShort(entry.distance_m)}</span>
+                        <span class="results-strip__col results-strip__col--score">${formatNumber(entry.score)}</span>
+                    </div>
+                    <span class="mystery__submitted-name">${firstName(entry.name)}</span>
+                </div>`;
+        }
+
+        function startWaitingPlaceholder(publishedAt) {
+            if (waitingInterval) clearInterval(waitingInterval);
+            const el = document.getElementById('waiting-placeholder-time');
+            if (!el) return;
+            const update = () => { el.textContent = formatTimeAgo(new Date().toISOString(), publishedAt); };
+            update();
+            waitingInterval = setInterval(update, 1000);
+        }
+
+        function removeWaitingPlaceholder() {
+            const ph = document.getElementById('waiting-placeholder');
+            if (ph) ph.remove();
+            if (waitingInterval) { clearInterval(waitingInterval); waitingInterval = null; }
+        }
+
+        function waitingPlaceholderHTML() {
+            return `
+                <div class="mystery__submitted-row" id="waiting-placeholder">
+                    <div class="submitted-strip">
+                        <div class="submitted-strip__bg"></div>
+                        <span class="submitted-strip__time" id="waiting-placeholder-time"></span>
+                    </div>
+                    <span class="mystery__submitted-name">Waiting for first guess...</span>
+                </div>`;
+        }
+
+        function submittedRow(guess, publishedAt, isNew = false) {
+            const name = firstName(guess.profiles?.name);
+            const time = formatTimeAgo(guess.submitted_at, publishedAt);
+            return `
+                <div class="mystery__submitted-row ${isNew ? 'mystery__submitted-row--new' : ''}" data-user="${guess.user_id}">
+                    <div class="submitted-strip">
+                        <div class="submitted-strip__bg"></div>
+                        <span class="submitted-strip__time">${time}</span>
+                    </div>
+                    <span class="mystery__submitted-name">${name}</span>
+                </div>`;
+        }
+    </script>
+
+</body>
+</html>
