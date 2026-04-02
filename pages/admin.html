@@ -261,7 +261,7 @@ async function renderSeasons() {
                         <div class="upload-zone__hint">JPG, PNG, WebP</div>
                     </div>
                     <div class="upload-preview" id="waiting-upload-preview" ${waitingImages.location ? 'style="display:block"' : ''}>
-                        <img id="waiting-preview-img" alt="Preview" ${waitingImages.location ? `src="${waitingImages.location}"` : ''}>
+                        <img id="waiting-preview-img" alt="Preview" ${waitingImages.location ? `src="${esc(waitingImages.location)}"` : ''}>
                     </div>
                 </div>
             </div>
@@ -935,7 +935,7 @@ async function renderUsers() {
                 showModal('Rename user', `
                     <div class="form-group">
                         <label class="form-label">New name</label>
-                        <input class="form-input" id="modal-rename-input" value="${btn.dataset.name}">
+                        <input class="form-input" id="modal-rename-input" value="${esc(btn.dataset.name)}">
                     </div>`, [
                     { label: 'Cancel' },
                     { label: 'Save', cls: 'btn--primary', fn: async () => {
@@ -948,7 +948,7 @@ async function renderUsers() {
         });
         usersList.querySelectorAll('.btn-del-user').forEach(btn => {
             btn.addEventListener('click', () => {
-                showModal('Delete user?', `<p style="color:var(--admin-text-secondary)">Delete <strong>${btn.dataset.name}</strong>? This removes their profile and all game data.</p>`, [
+                showModal('Delete user?', `<p style="color:var(--admin-text-secondary)">Delete <strong>${esc(btn.dataset.name)}</strong>? This removes their profile and all game data.</p>`, [
                     { label: 'Cancel' },
                     { label: 'Delete', cls: 'btn--danger', fn: async () => { await api.deleteUser(btn.dataset.id); showToast('User deleted'); renderUsers(); } }
                 ]);

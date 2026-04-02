@@ -116,6 +116,7 @@
             }
         }
 
+        function esc(s) { const el = document.createElement('span'); el.textContent = s ?? ''; return el.innerHTML; }
         function gameDisplayName(s) { return s.display_title || s.name; }
         function px(vwVal) { return vwVal * window.innerWidth / 100; }
         const PIN_VW = 3.3;
@@ -420,7 +421,7 @@
             const idAttr = stripId ? ` id="${stripId}"` : '';
             return `
                 <div class="mystery__image" ${ar}>
-                    <img src="${mystery.image_url}" alt="Mystery">
+                    <img src="${esc(mystery.image_url)}" alt="Mystery">
                     <div class="edge-wrapper edge-wrapper--strip edge-wrapper--from-left">
                         <div class="strip strip--from-left"><span class="strip__text"${idAttr}>${stripText}</span></div>
                     </div>
@@ -536,7 +537,7 @@
 
             const gPinPx = Math.round(px(PIN_VW));
             const gPinHalf = gPinPx / 2;
-            const initial = firstName(profile.name).charAt(0).toUpperCase();
+            const initial = esc(firstName(profile.name).charAt(0).toUpperCase());
             const guessIcon = L.divIcon({ className: '', html: `<div class="world-pin" style="background:#000;">${initial}</div>`, iconSize: [gPinPx, gPinPx], iconAnchor: [gPinHalf, gPinHalf] });
 
             guessMarker = null;
@@ -573,7 +574,7 @@
                     ${makeHeader(type, null, countdownText)}
                     ${waitingImg ? `
                     <div class="mystery__image">
-                        <img src="${waitingImg}" alt="Waiting">
+                        <img src="${esc(waitingImg)}" alt="Waiting">
                     </div>` : ''}
                 </div>
             `;
@@ -655,7 +656,7 @@
 
             const sPinPx = Math.round(px(PIN_VW));
             const sPinH = sPinPx / 2;
-            const initial = firstName(profile.name).charAt(0).toUpperCase();
+            const initial = esc(firstName(profile.name).charAt(0).toUpperCase());
             const icon = L.divIcon({ className: '', html: `<div class="world-pin" style="background:#000;">${initial}</div>`, iconSize: [sPinPx, sPinPx], iconAnchor: [sPinH, sPinH] });
             L.marker([lat, lng], { icon, interactive: false }).addTo(guessMap);
 
@@ -673,7 +674,7 @@
 
             const resultLabel = !userEntry
                 ? 'NO GUESS'
-                : selectedEntry.user_id === userId ? 'YOUR RESULT' : `${firstName(selectedEntry.name)}'S RESULT`;
+                : selectedEntry.user_id === userId ? 'YOUR RESULT' : `${esc(firstName(selectedEntry.name))}'S RESULT`;
             const scoreText = !userEntry ? 'SCORE: 0' : `SCORE: ${formatNumber(selectedEntry.score)}`;
 
             container.innerHTML = `
@@ -826,7 +827,7 @@
             while (gLng - answer.lng < -180) gLng += 360;
             guessLL[1] = gLng;
 
-            const guessInitial = firstName(entry.name).charAt(0).toUpperCase();
+            const guessInitial = esc(firstName(entry.name).charAt(0).toUpperCase());
             const guessIcon = L.divIcon({ className: '', html: `<div class="world-pin" style="background:#000;cursor:pointer;">${guessInitial}</div>`, iconSize: [pinPx, pinPx], iconAnchor: [pinH, pinH] });
             const guessMarkerResult = L.marker(guessLL, { icon: guessIcon, zIndexOffset: 500 }).addTo(resultMap);
 
@@ -1041,7 +1042,7 @@
                             <span class="banner__text">Leaderboard</span>
                         </div>
                         <div class="mystery-header__card" style="justify-content:flex-start;">
-                            <div class="strip strip--from-left"><span class="strip__text">${gameDisplayName(season)}</span></div>
+                            <div class="strip strip--from-left"><span class="strip__text">${esc(gameDisplayName(season))}</span></div>
                         </div>
                     </div>
                     <div class="mystery__submitted mystery__submitted--leaderboard">
@@ -1053,7 +1054,7 @@
                         </div>
                         ${board.map((entry, i) => `
                         <div class="mystery__submitted-row">
-                            <span class="mystery__submitted-name">${firstName(entry.name)}</span>
+                            <span class="mystery__submitted-name">${esc(firstName(entry.name))}</span>
                             <div class="results-strip results-strip--leaderboard">
                                 <div class="submitted-strip__bg"></div>
                                 <span class="results-strip__col results-strip__col--pos">${i + 1}</span>
@@ -1113,7 +1114,7 @@
                         <span class="results-strip__col results-strip__col--distance">${formatDistanceShort(entry.distance_m)}</span>
                         <span class="results-strip__col results-strip__col--score">${formatNumber(entry.score)}</span>
                     </div>
-                    <span class="mystery__submitted-name">${firstName(entry.name)}</span>
+                    <span class="mystery__submitted-name">${esc(firstName(entry.name))}</span>
                 </div>`;
         }
 
@@ -1144,7 +1145,7 @@
         }
 
         function submittedRow(guess, publishedAt, isNew = false) {
-            const name = firstName(guess.profiles?.name);
+            const name = esc(firstName(guess.profiles?.name));
             const time = formatTimeAgo(guess.submitted_at, publishedAt);
             return `
                 <div class="mystery__submitted-row ${isNew ? 'mystery__submitted-row--new' : ''}" data-user="${guess.user_id}">
