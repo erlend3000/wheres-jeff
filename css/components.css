@@ -208,14 +208,16 @@ wheff-card:not(.card-wrapper) {
 .banner--action .banner__text { transition: color var(--transition-speed) ease; }
 .banner--action:hover::before  { background: var(--color-text-inverse); }
 .banner--action:hover .banner__text { color: var(--color-text); }
-.banner--action:active::before { background: #e0e0e0; }
+.banner--action:active::before { background: var(--color-banner); }
+.banner--action:active .banner__text { color: var(--color-text-inverse); }
 
 /* Secondary (white bg, dark text — inverts on hover) */
 .banner--secondary::before { background: var(--color-text-inverse); }
 .banner--secondary .banner__text { color: var(--color-text); }
 .banner--secondary.banner--action:hover::before { background: var(--color-banner); }
 .banner--secondary.banner--action:hover .banner__text { color: var(--color-text-inverse); }
-.banner--secondary.banner--action:active::before { background: #333; }
+.banner--secondary.banner--action:active::before { background: var(--color-text-inverse); }
+.banner--secondary.banner--action:active .banner__text { color: var(--color-text); }
 
 /* Small (strip-sized, flush with card edge) */
 .banner--small {
@@ -508,6 +510,7 @@ wheff-card:not(.card-wrapper) {
     height: var(--mystery-map-height);
     position: relative;
     z-index: 1;
+    background: #1a1a2e;
 }
 
 .mystery__map .leaflet-container {

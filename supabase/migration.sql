@@ -223,6 +223,7 @@ begin
           and m.published_at is not null
           and m.published_at <= now()
           and g.id is null
+          and sm.joined_at <= m.published_at
     loop
         rand_lat := (random() * 180.0) - 90.0;
         rand_lng := (random() * 360.0) - 180.0;

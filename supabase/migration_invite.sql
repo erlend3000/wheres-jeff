@@ -95,8 +95,9 @@ declare
     v_count int;
     v_pending record;
     v_found_pending boolean := false;
+    v_name text;
 begin
-    -- 1. Create profile (original behavior)
+    -- 1. Create profile
     insert into public.profiles (id, name, email)
     values (
         new.id,
@@ -119,18 +120,28 @@ begin
         return new;
     end if;
 
-    -- 3. Auto-enroll in newest auto-generated game with room
+    -- 3. Auto-enroll in newest auto-generated game with room AND no published mysteries
     select s.id into v_season_id
     from public.seasons s
     where s.active = true and s.auto_generated = true
       and (select count(*) from public.season_members sm where sm.season_id = s.id) < s.max_players
+      and not exists (
+          select 1 from public.mysteries m
+          where m.season_id = s.id
+            and m.published_at is not null
+            and m.published_at <= now()
+      )
     order by s.created_at desc
     limit 1;
 
     if v_season_id is null then
-        -- 4. Create new auto-generated game
-        insert into public.seasons (name, auto_generated)
-        values (to_char(now(), 'DD Mon YYYY HH24:MI'), true)
+        -- 4. Create new auto-generated game: label "Autogame #N", display "Season 1"
+        select 'Autogame #' || (coalesce(
+            (select count(*) from public.seasons where auto_generated = true), 0
+        ) + 1) into v_name;
+
+        insert into public.seasons (name, display_title, auto_generated)
+        values (v_name, 'Season 1', true)
         returning id into v_season_id;
     end if;
 
@@ -140,7 +151,7 @@ begin
 
     return new;
 end;
-$$ language plpgsql security definer;
+$$ language plpgsql security definer set search_path = public;
 
 -- === RPC: fully delete a user (admin only) ===
 

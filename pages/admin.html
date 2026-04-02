@@ -274,11 +274,12 @@ async function renderSeasons() {
         } else {
             gamesHtml = `<div class="card"><table class="admin-table">
             <thead><tr>
-                <th>Name</th><th>Status</th><th>Members</th><th>Mysteries</th><th></th>
+                <th>Name</th><th>Created</th><th>Status</th><th>Members</th><th>Mysteries</th><th></th>
             </tr></thead>
             <tbody>${seasons.map(s => `
                 <tr class="clickable-row" data-season-id="${s.id}">
                     <td style="font-weight:500">${esc(s.name)}</td>
+                    <td>${formatAdminDate(s.created_at)}</td>
                     <td>${s.active ? '<span class="badge badge--active">Active</span>' : '<span class="badge badge--ended">Ended</span>'}</td>
                     <td>${s.season_members?.length || 0}</td>
                     <td>${s.mysteries?.length || 0}</td>
@@ -370,10 +371,17 @@ async function openSeasonDetail(id) {
                 <div class="card__body">
                     <div class="form-row">
                         <div class="form-group">
-                            <label class="form-label">Rename</label>
-                            <input class="form-input" id="season-rename" value="${esc(season.name)}" maxlength="20">
+                            <label class="form-label">Label</label>
+                            <input class="form-input" id="season-rename" value="${esc(season.name)}" maxlength="30">
                         </div>
                         <button class="btn btn--plain" id="btn-rename-season">Save</button>
+                    </div>
+                    <div class="form-row" style="margin-top:12px">
+                        <div class="form-group">
+                            <label class="form-label">Display title</label>
+                            <input class="form-input" id="season-display-title" value="${esc(season.display_title || '')}" maxlength="30" placeholder="Uses label if empty">
+                        </div>
+                        <button class="btn btn--plain" id="btn-save-display-title">Save</button>
                     </div>
                     <div class="form-row" style="margin-top:12px">
                         <div class="form-group">
@@ -443,6 +451,12 @@ async function openSeasonDetail(id) {
         seasonDetail.querySelector('#btn-rename-season')?.addEventListener('click', async () => {
             const newName = document.getElementById('season-rename').value.trim();
             if (newName) { await api.updateSeason(id, { name: newName }); showToast('Game renamed'); openSeasonDetail(id); }
+        });
+        seasonDetail.querySelector('#btn-save-display-title')?.addEventListener('click', async () => {
+            const val = document.getElementById('season-display-title').value.trim();
+            await api.updateSeason(id, { display_title: val || null });
+            showToast('Display title updated');
+            openSeasonDetail(id);
         });
         seasonDetail.querySelector('#btn-save-max-players')?.addEventListener('click', async () => {
             const val = parseInt(document.getElementById('season-max-players').value, 10);
@@ -948,6 +962,12 @@ async function renderUsers() {
 renderUsers();
 
 // ── Util ──
+function formatAdminDate(iso) {
+    if (!iso) return '';
+    const d = new Date(iso);
+    return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+}
+
 function esc(str) {
     const el = document.createElement('span');
     el.textContent = str;

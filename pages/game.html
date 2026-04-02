@@ -116,6 +116,7 @@
             }
         }
 
+        function gameDisplayName(s) { return s.display_title || s.name; }
         function px(vwVal) { return vwVal * window.innerWidth / 100; }
         const PIN_VW = 3.3;
         const LINE_WEIGHT_VW = 0.39;
@@ -248,7 +249,7 @@
 
         function setupChooser(seasons) {
             function updateChooser() {
-                document.getElementById('chooser-name').textContent = seasons[chooserIdx].name;
+                document.getElementById('chooser-name').textContent = gameDisplayName(seasons[chooserIdx]);
                 document.getElementById('chooser-prev').style.display = chooserIdx > 0 ? '' : 'none';
                 document.getElementById('chooser-next').style.display = chooserIdx < seasons.length - 1 ? '' : 'none';
             }
@@ -311,7 +312,7 @@
             checkReturnToasts();
             preloadAllMysteryImages();
 
-            buildNavItems();
+            await buildNavItems();
             await renderMysteryAtPosition();
             await renderLeaderboard();
             await renderPastMysteries();
@@ -354,7 +355,7 @@
 
         // ── Navigation Model ──
 
-        function buildNavItems() {
+        async function buildNavItems() {
             navItems = [];
             if (currentMystery) {
                 navItems.push({ mystery: currentMystery, type: 'current' });
@@ -365,7 +366,12 @@
                 revealedMysteries.forEach((m, i) => {
                     navItems.push({ mystery: m, type: (i === 0) ? 'latest' : 'past' });
                 });
-                navPos = currentMystery ? 0 : 1;
+                if (currentMystery) {
+                    navPos = 0;
+                } else {
+                    const latestGuess = await getUserGuess(revealedMysteries[0].id, userId);
+                    navPos = latestGuess ? 1 : 0;
+                }
             } else if (!currentMystery) {
                 navItems.push({ mystery: null, type: 'first' });
                 navPos = 0;
@@ -914,7 +920,7 @@
             currentMystery = getCurrentMystery(mysteries);
             revealedMysteries = getRevealedMysteries(mysteries);
             preloadAllMysteryImages();
-            buildNavItems();
+            await buildNavItems();
             await renderMysteryAtPosition();
             await renderLeaderboard();
             await renderPastMysteries();
@@ -1035,7 +1041,7 @@
                             <span class="banner__text">Leaderboard</span>
                         </div>
                         <div class="mystery-header__card" style="justify-content:flex-start;">
-                            <div class="strip strip--from-left"><span class="strip__text">${season.name}</span></div>
+                            <div class="strip strip--from-left"><span class="strip__text">${gameDisplayName(season)}</span></div>
                         </div>
                     </div>
                     <div class="mystery__submitted mystery__submitted--leaderboard">
