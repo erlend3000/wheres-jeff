@@ -124,6 +124,13 @@
         const LINE_DASH_VW = 0.7;
         const LINE_GAP_VW = 0.63;
         let lastResultData = null;
+        let cachedLeaderboard = null;
+
+        function addTileLayer(map) {
+            L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
+                attribution: '&copy; OSM', maxNativeZoom: 19, maxZoom: 22
+            }).addTo(map);
+        }
 
         function enforceMinZoom(map) {
             const h = map.getContainer().clientHeight;
@@ -142,7 +149,7 @@
                     try {
                         const icon = l.getIcon();
                         if (icon?.options?.className === '') l.setIcon(L.divIcon({ ...icon.options, iconSize: [p, p], iconAnchor: [h, h] }));
-                    } catch(e) {}
+                    } catch {}
                 }
             });
         }
@@ -235,7 +242,7 @@
             const types = ['location', 'time', 'film', 'cyber'];
             const imgs = await Promise.all(types.map(t => getAppSetting(`waiting_image_${t}`)));
             types.forEach((t, i) => { if (imgs[i]) waitingImages[t] = imgs[i]; });
-        } catch(e) {}
+        } catch {}
         const allSeasons = await getUserSeasons(userId);
         let chooserIdx = 0;
         const hasMultipleGames = allSeasons.length > 1;
@@ -493,9 +500,9 @@
             startCountdown(mystery, async () => {
                 const lat = (Math.random() * 180) - 90;
                 const lng = (Math.random() * 360) - 180;
-                try { await submitGuess(mystery.id, lat, lng, answer.lat, answer.lng, mystery.published_at, mystery.reveals_at); } catch(e) {}
+                try { await submitGuess(mystery.id, lat, lng, answer.lat, answer.lng, mystery.published_at, mystery.reveals_at); } catch {}
             });
-            initGuessMap(answer);
+            initGuessMap();
             if (!guesses.length) startWaitingPlaceholder(mystery.published_at);
 
             const submitBanner = document.getElementById('submit-btn');
@@ -524,16 +531,12 @@
             });
         }
 
-        function initGuessMap(answer) {
+        function initGuessMap() {
             const mapEl = document.getElementById('guess-map-container');
             if (!mapEl) return;
             guessMap = L.map(mapEl, mapDefaults).setView([30, 0], 2);
             enablePinchZoom(guessMap);
-            L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
-                attribution: '&copy; OSM',
-                maxNativeZoom: 19,
-                maxZoom: 22
-            }).addTo(guessMap);
+            addTileLayer(guessMap);
 
             const gPinPx = Math.round(px(PIN_VW));
             const gPinHalf = gPinPx / 2;
@@ -562,7 +565,7 @@
 
         async function renderNextView(container, type = 'next') {
             let nextInfo = null;
-            try { nextInfo = await getNextMysteryInfo(season.id); } catch(e) {}
+            try { nextInfo = await getNextMysteryInfo(season.id); } catch {}
             const nextStart = nextInfo?.published_at || null;
             const nextType = nextInfo?.type || 'location';
 
@@ -580,15 +583,7 @@
             `;
 
             if (nextStart) {
-                requestAnimationFrame(() => {
-                    const el = document.getElementById('countdown');
-                    if (!el) return;
-                    const strip = el.closest('.strip');
-                    if (strip) {
-                        strip.style.width = (strip.offsetWidth / window.innerWidth * 100) + 'vw';
-                        strip.style.justifyContent = 'flex-end';
-                    }
-                });
+                fixCountdownStripWidth();
                 countdownInterval = setInterval(() => {
                     const el = document.getElementById('countdown');
                     if (!el) return;
@@ -648,11 +643,7 @@
 
             guessMap = L.map(mapEl, mapDefaults).setView([lat, lng], 8);
             enablePinchZoom(guessMap);
-            L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
-                attribution: '&copy; OSM',
-                maxNativeZoom: 19,
-                maxZoom: 22
-            }).addTo(guessMap);
+            addTileLayer(guessMap);
 
             const sPinPx = Math.round(px(PIN_VW));
             const sPinH = sPinPx / 2;
@@ -716,8 +707,7 @@
 
         // ── Countdown ──
 
-        function startCountdown(mystery, onExpire) {
-            if (!mystery.reveals_at) return;
+        function fixCountdownStripWidth() {
             requestAnimationFrame(() => {
                 const el = document.getElementById('countdown');
                 if (!el) return;
@@ -727,6 +717,11 @@
                     strip.style.justifyContent = 'flex-end';
                 }
             });
+        }
+
+        function startCountdown(mystery, onExpire) {
+            if (!mystery.reveals_at) return;
+            fixCountdownStripWidth();
             countdownInterval = setInterval(async () => {
                 const el = document.getElementById('countdown');
                 if (!el) return;
@@ -748,11 +743,7 @@
             if (!mapEl) return;
             resultMap = L.map(mapEl, mapDefaults).setView([answer.lat, answer.lng], 5);
             enablePinchZoom(resultMap);
-            L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
-                attribution: '&copy; OSM',
-                maxNativeZoom: 19,
-                maxZoom: 22
-            }).addTo(resultMap);
+            addTileLayer(resultMap);
 
             addMapTint(mapEl);
 
@@ -960,7 +951,7 @@
             if (!mapEl) return;
             worldMap = L.map(mapEl, mapDefaults).setView([20, 0], 2);
             enablePinchZoom(worldMap);
-            L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', { attribution: '&copy; OSM' }).addTo(worldMap);
+            addTileLayer(worldMap);
             addMapTint(mapEl);
 
             const rawPoints = locations.map(m => [m.answer.lat, m.answer.lng]);
@@ -1032,7 +1023,8 @@
             const container = document.getElementById('leaderboard-content');
             if (!season) { container.innerHTML = ''; return; }
 
-            const board = await getSeasonLeaderboard(season.id);
+            cachedLeaderboard = await getSeasonLeaderboard(season.id);
+            const board = cachedLeaderboard;
             if (!board.length) { container.innerHTML = ''; return; }
 
             container.innerHTML = `
@@ -1072,7 +1064,7 @@
 
         async function populateStats() {
             if (!season) return;
-            const board = await getSeasonLeaderboard(season.id);
+            const board = cachedLeaderboard || await getSeasonLeaderboard(season.id);
             const myEntry = board.find(e => e.user_id === userId);
 
             function setField(name, value) {

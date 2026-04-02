@@ -513,13 +513,15 @@ wheff-card:not(.card-wrapper) {
     background: #1a1a2e;
 }
 
-.mystery__map .leaflet-container {
+.mystery__map .leaflet-container,
+.world-map .leaflet-container {
     width: 100%;
     height: 100%;
     background: #1a1a2e;
 }
 
-.mystery__map .leaflet-tile-pane {
+.mystery__map .leaflet-tile-pane,
+.world-map .leaflet-tile-pane {
     filter: saturate(1.8) brightness(0.75);
 }
 
@@ -587,7 +589,6 @@ wheff-card:not(.card-wrapper) {
 }
 .loader--sab   { width: 3.15vw; color: var(--color-text-inverse); position: relative; z-index: 1; }
 .loader--btn   { width: calc(var(--font-size-title) * 1.05); }
-.loader--white { color: #fff; }
 
 @keyframes loader-bounce {
     20% { background-position: 0% 0%,   50% 50%,  100% 50%; }
@@ -805,16 +806,6 @@ wheff-card:not(.card-wrapper) {
     position: relative;
     z-index: 1;
     margin-top: calc(-1 * (var(--banner-height) / 2 + var(--font-size-title) * 0.84));
-}
-
-.world-map .leaflet-container {
-    width: 100%;
-    height: 100%;
-    background: #1a1a2e;
-}
-
-.world-map .leaflet-tile-pane {
-    filter: saturate(1.8) brightness(0.75);
 }
 
 .world-pin {

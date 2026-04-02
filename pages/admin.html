@@ -162,6 +162,13 @@ const pageTitle = document.getElementById('page-title');
 const pageActions = document.getElementById('page-actions');
 const titles = { seasons: 'Games', mysteries: 'Mysteries', users: 'Users' };
 
+function wireDragDrop(zone, input, handler) {
+    zone.addEventListener('dragover', e => { e.preventDefault(); zone.classList.add('dragover'); });
+    zone.addEventListener('dragleave', () => zone.classList.remove('dragover'));
+    zone.addEventListener('drop', e => { e.preventDefault(); zone.classList.remove('dragover'); if (e.dataTransfer.files.length) handler(e.dataTransfer.files[0]); });
+    input?.addEventListener('change', () => { if (input.files.length) handler(input.files[0]); });
+}
+
 function switchTab(tab) {
     navItems.forEach(n => n.classList.toggle('active', n.dataset.tab === tab));
     panels.forEach(p => p.classList.toggle('active', p.id === `panel-${tab}`));
@@ -326,18 +333,12 @@ function wireWaitingImageUploads() {
 
     select.addEventListener('change', () => showPreviewForType(select.value));
 
-    zone.addEventListener('dragover', e => { e.preventDefault(); zone.classList.add('dragover'); });
-    zone.addEventListener('dragleave', () => zone.classList.remove('dragover'));
-    zone.addEventListener('drop', e => {
-        e.preventDefault();
-        zone.classList.remove('dragover');
-        if (e.dataTransfer.files.length) doUpload(e.dataTransfer.files[0]);
-    });
-    input?.addEventListener('change', () => { if (input.files.length) doUpload(input.files[0]); });
+    wireDragDrop(zone, input, doUpload);
 
     async function doUpload(file) {
         const type = select.value;
         const { blob } = await processImage(file);
+        if (img.src.startsWith('blob:')) URL.revokeObjectURL(img.src);
         img.src = URL.createObjectURL(blob);
         preview.style.display = 'block';
         try {
@@ -372,14 +373,14 @@ async function openSeasonDetail(id) {
                     <div class="form-row">
                         <div class="form-group">
                             <label class="form-label">Label</label>
-                            <input class="form-input" id="season-rename" value="${esc(season.name)}" maxlength="30">
+                            <input class="form-input" id="season-rename" value="${esc(season.name)}" maxlength="20">
                         </div>
                         <button class="btn btn--plain" id="btn-rename-season">Save</button>
                     </div>
                     <div class="form-row" style="margin-top:12px">
                         <div class="form-group">
                             <label class="form-label">Display title</label>
-                            <input class="form-input" id="season-display-title" value="${esc(season.display_title || '')}" maxlength="30" placeholder="Uses label if empty">
+                            <input class="form-input" id="season-display-title" value="${esc(season.display_title || '')}" maxlength="20" placeholder="Uses label if empty">
                         </div>
                         <button class="btn btn--plain" id="btn-save-display-title">Save</button>
                     </div>
@@ -649,14 +650,7 @@ const fileInput = document.getElementById('mystery-image-file');
 const uploadPreview = document.getElementById('upload-preview');
 const previewImg = document.getElementById('upload-preview-img');
 
-uploadZone.addEventListener('dragover', e => { e.preventDefault(); uploadZone.classList.add('dragover'); });
-uploadZone.addEventListener('dragleave', () => uploadZone.classList.remove('dragover'));
-uploadZone.addEventListener('drop', e => {
-    e.preventDefault();
-    uploadZone.classList.remove('dragover');
-    if (e.dataTransfer.files.length) handleFile(e.dataTransfer.files[0]);
-});
-fileInput.addEventListener('change', () => { if (fileInput.files.length) handleFile(fileInput.files[0]); });
+wireDragDrop(uploadZone, fileInput, handleFile);
 
 let pendingFile = null;
 let pendingDimensions = null;
@@ -666,6 +660,7 @@ function processImage(file) {
     return new Promise((resolve) => {
         const img = new Image();
         img.onload = () => {
+            URL.revokeObjectURL(img.src);
             let { width, height } = img;
             if (width > MAX_IMAGE_DIM || height > MAX_IMAGE_DIM) {
                 const ratio = Math.min(MAX_IMAGE_DIM / width, MAX_IMAGE_DIM / height);
@@ -689,6 +684,7 @@ async function handleFile(file) {
     const { blob, width, height } = await processImage(file);
     pendingFile = blob;
     pendingDimensions = { width, height };
+    if (previewImg.src.startsWith('blob:')) URL.revokeObjectURL(previewImg.src);
     previewImg.src = URL.createObjectURL(blob);
     uploadPreview.style.display = 'block';
 
