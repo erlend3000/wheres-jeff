@@ -163,6 +163,13 @@ create policy "Users can insert own guesses"
     to authenticated
     with check (auth.uid() = user_id);
 
+create policy "Admins can delete guesses"
+    on public.guesses for delete
+    to authenticated
+    using (
+        exists (select 1 from public.profiles where id = auth.uid() and is_admin = true)
+    );
+
 
 -- === Storage bucket for mystery images ===
 

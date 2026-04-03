@@ -752,7 +752,9 @@ function editTemplate(template) {
         season_id: inst.season_id,
         published_at: api.toDatetimeLocal(inst.published_at),
         reveals_at: api.toDatetimeLocal(inst.reveals_at),
-        instance_id: inst.id
+        instance_id: inst.id,
+        orig_published_at: inst.published_at,
+        orig_reveals_at: inst.reveals_at
     }));
     renderGameEntries();
     document.getElementById('mystery-form-card').scrollIntoView({ behavior: 'smooth' });
@@ -814,6 +816,9 @@ document.getElementById('btn-save-mystery').addEventListener('click', async () =
                     reveals_at: ge.reveals_at ? new Date(ge.reveals_at).toISOString() : null
                 };
                 if (ge.instance_id) {
+                    const timingChanged = timing.published_at !== ge.orig_published_at
+                                       || timing.reveals_at !== ge.orig_reveals_at;
+                    if (timingChanged) await api.deleteGuessesForMystery(ge.instance_id);
                     await api.updateMysteryTiming(ge.instance_id, { ...timing, season_id: ge.season_id });
                 } else {
                     await api.addMysteryToGame(editTemplateId, content, {
