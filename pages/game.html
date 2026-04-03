@@ -492,7 +492,7 @@
                     </div>
                     <div class="mystery__submitted" id="submitted-list">
                         <div class="mystery__submitted-header">Time</div>
-                        ${guesses.length ? guesses.map(g => submittedRow(g, mystery.published_at)).join('') : waitingPlaceholderHTML()}
+                        ${guesses.length ? guesses.map(g => submittedRow(g, mystery.published_at, mystery.reveals_at)).join('') : waitingPlaceholderHTML()}
                     </div>
                 </div>
             `;
@@ -526,7 +526,7 @@
                 const list = document.getElementById('submitted-list');
                 if (!list || list.querySelector(`[data-user="${newGuess.user_id}"]`)) return;
                 const row = document.createElement('div');
-                row.innerHTML = submittedRow(newGuess, mystery.published_at, true);
+                row.innerHTML = submittedRow(newGuess, mystery.published_at, mystery.reveals_at, true);
                 list.appendChild(row.firstElementChild);
             });
         }
@@ -615,7 +615,7 @@
                     </div>
                     <div class="mystery__submitted" id="submitted-list">
                         <div class="mystery__submitted-header">Time</div>
-                        ${guesses.length ? guesses.map(g => submittedRow(g, mystery.published_at)).join('') : waitingPlaceholderHTML()}
+                        ${guesses.length ? guesses.map(g => submittedRow(g, mystery.published_at, mystery.reveals_at)).join('') : waitingPlaceholderHTML()}
                     </div>
                 </div>
             `;
@@ -629,7 +629,7 @@
                 const list = document.getElementById('submitted-list');
                 if (!list || list.querySelector(`[data-user="${newGuess.user_id}"]`)) return;
                 const row = document.createElement('div');
-                row.innerHTML = submittedRow(newGuess, mystery.published_at, true);
+                row.innerHTML = submittedRow(newGuess, mystery.published_at, mystery.reveals_at, true);
                 list.appendChild(row.firstElementChild);
             });
         }
@@ -659,7 +659,7 @@
 
         async function renderRevealedView(container, mystery, type) {
             const answer = mystery.answer;
-            const leaderboard = await getMysteryLeaderboard(mystery.id, mystery.published_at);
+            const leaderboard = await getMysteryLeaderboard(mystery.id, mystery.published_at, mystery.reveals_at);
             const userEntry = leaderboard.find(e => e.user_id === userId);
             let selectedEntry = userEntry || leaderboard[0] || null;
 
@@ -1136,9 +1136,11 @@
                 </div>`;
         }
 
-        function submittedRow(guess, publishedAt, isNew = false) {
+        function submittedRow(guess, publishedAt, revealsAt, isNew = false) {
             const name = esc(firstName(guess.profiles?.name));
-            const time = formatTimeAgo(guess.submitted_at, publishedAt);
+            const isAuto = revealsAt && new Date(guess.submitted_at) >= new Date(revealsAt);
+            const t = formatTimeAgo(guess.submitted_at, publishedAt);
+            const time = isAuto ? `${t} (A)` : t;
             return `
                 <div class="mystery__submitted-row ${isNew ? 'mystery__submitted-row--new' : ''}" data-user="${guess.user_id}">
                     <div class="submitted-strip">

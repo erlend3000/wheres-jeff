@@ -420,13 +420,15 @@ async function openSeasonDetail(id) {
                             <td class="actions"><button class="btn btn--danger btn--small btn-rm-pending" data-email="${esc(p.email)}">Remove</button></td>
                         </tr>`).join('')}</tbody></table>` : ''}
                     ${members.length ? `<table class="admin-table" style="margin-top:4px">
-                        <thead><tr><th>Name</th><th>Score</th><th>Wins</th><th></th></tr></thead>
+                        <thead><tr><th>Name</th><th>Score</th><th>Wins</th><th>Karma</th><th></th></tr></thead>
                         <tbody>${members.map(m => {
-                            const s = seasonScores[m.user_id] || { score: 0, wins: 0 };
+                            const s = seasonScores[m.user_id] || { score: 0, wins: 0, karma: 0 };
+                            const k = s.karma;
                             return `<tr>
                                 <td style="font-weight:500">${esc(m.profiles?.name || m.profiles?.email || m.user_id)}</td>
                                 <td>${s.score}</td>
                                 <td>${s.wins}</td>
+                                <td>${(k > 0 ? '+' : '') + k.toLocaleString()}</td>
                                 <td class="actions"><button class="btn btn--danger btn--small btn-rm-member" data-uid="${m.user_id}">Remove</button></td>
                             </tr>`;
                         }).join('')}</tbody></table>` : '<div class="empty-state" style="padding:16px 0">No members yet</div>'}
@@ -917,13 +919,14 @@ async function renderUsers() {
         }
         usersList.innerHTML = `<div class="card"><table class="admin-table">
             <thead><tr>
-                <th>Name</th><th>Email</th><th>Score</th><th>Wins</th><th>Role</th><th></th>
+                <th>Name</th><th>Email</th><th>Score</th><th>Wins</th><th>Karma</th><th>Role</th><th></th>
             </tr></thead>
             <tbody>${users.map(u => `<tr>
                 <td style="font-weight:500">${esc(u.name || '—')}</td>
                 <td style="color:var(--admin-text-secondary)">${esc(u.email)}</td>
                 <td>${u.total_score}</td>
                 <td>${u.wins}</td>
+                <td>${(u.jeff_karma > 0 ? '+' : '') + u.jeff_karma.toLocaleString()}</td>
                 <td>${u.is_admin ? '<span class="badge badge--admin">Admin</span>' : ''}</td>
                 <td class="actions">
                     <button class="btn btn--plain btn--small btn-rename-user" data-id="${u.id}" data-name="${esc(u.name || '')}">Rename</button>
