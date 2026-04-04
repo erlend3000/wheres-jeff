@@ -376,6 +376,7 @@ async function openSeasonDetail(id) {
         if (!season) return;
         const memberIds = new Set(members.map(m => m.user_id));
         const available = allUsers.filter(u => !memberIds.has(u.id));
+        const hasLocked = mysteries.some(m => { const st = api.mysteryStatus(m); return st === 'live' || st === 'revealed'; });
         seasonDetail.innerHTML = `
             <button class="detail-back" id="btn-season-back">&larr; All games</button>
             <div class="card">
@@ -450,10 +451,11 @@ async function openSeasonDetail(id) {
                         }).join('')}</tbody></table>` : '<div class="empty-state" style="padding:16px 0">No members yet</div>'}
                 </div>
             </div>
-            <div class="card" id="schedule-card" ${!mysteries.length ? 'style="opacity:0.45;pointer-events:none"' : ''}>
+            <div class="card" id="schedule-card" ${!mysteries.length || hasLocked ? 'style="opacity:0.45;pointer-events:none"' : ''}>
                 <div class="card__header">
                     <span class="card__title">Schedule</span>
                     ${!mysteries.length ? '<span style="font-size:12px;color:var(--admin-text-secondary)">Add a mystery first</span>' : ''}
+                    ${hasLocked ? '<span style="font-size:12px;color:var(--admin-text-secondary)">Locked — game has active or completed mysteries</span>' : ''}
                 </div>
                 <div class="card__body">
                     <div class="form-row">
@@ -473,12 +475,13 @@ async function openSeasonDetail(id) {
                         <div class="form-group" style="flex:0.6">
                             <label class="form-label">Gap</label>
                             <div style="display:flex;gap:6px">
-                                <input class="form-input" type="number" id="sched-gap-val" min="0" value="${season.gap_value || ''}" placeholder="5" style="width:70px">
+                                <input class="form-input" type="number" id="sched-gap-val" min="0" value="${season.gap_value ?? ''}" placeholder="5" style="width:70px">
                                 <select class="form-input" id="sched-gap-unit">
                                     ${['seconds','minutes','hours','days','weeks'].map(u => `<option value="${u}" ${(season.gap_unit || 'minutes') === u ? 'selected' : ''}>${u}</option>`).join('')}
                                 </select>
                             </div>
                         </div>
+                        <button class="btn btn--primary" id="btn-save-schedule" style="align-self:flex-end">${season.frequency_value ? 'Update' : 'Save'}</button>
                     </div>
                 </div>
             </div>
@@ -493,11 +496,13 @@ async function openSeasonDetail(id) {
             </div>`;
 
         function getScheduleConfig() {
+            const freqRaw = document.getElementById('sched-freq-val')?.value;
+            const gapRaw = document.getElementById('sched-gap-val')?.value;
             return {
                 starts_at: document.getElementById('sched-start')?.value ? new Date(document.getElementById('sched-start').value).toISOString() : season.starts_at,
-                frequency_value: parseInt(document.getElementById('sched-freq-val')?.value) || null,
+                frequency_value: freqRaw !== '' ? parseInt(freqRaw) : null,
                 frequency_unit: document.getElementById('sched-freq-unit')?.value || 'minutes',
-                gap_value: parseInt(document.getElementById('sched-gap-val')?.value) || null,
+                gap_value: gapRaw !== '' ? parseInt(gapRaw) : null,
                 gap_unit: document.getElementById('sched-gap-unit')?.value || 'minutes'
             };
         }
@@ -527,19 +532,29 @@ async function openSeasonDetail(id) {
             wireMysteriesTable(id, season);
         }
 
-        ['sched-start', 'sched-freq-val', 'sched-freq-unit', 'sched-gap-val', 'sched-gap-unit'].forEach(elId => {
-            seasonDetail.querySelector('#' + elId)?.addEventListener('change', async () => {
-                await saveScheduleConfig();
-                await recalcAndSave();
-                showToast('Schedule updated');
-            });
-        });
-
-        seasonDetail.querySelector('#sched-start')?.addEventListener('blur', () => {
-            const val = document.getElementById('sched-start').value;
-            if (val && new Date(val) < new Date()) {
-                showToast('Start time is in the past — schedule may start immediately', { type: 'error' });
+        seasonDetail.querySelector('#btn-save-schedule')?.addEventListener('click', async () => {
+            const config = getScheduleConfig();
+            if (!config.starts_at || !document.getElementById('sched-start').value) {
+                return showToast('Set a start time', { type: 'error' });
             }
+            if (!config.frequency_value || config.frequency_value <= 0) {
+                return showToast('Set a valid frequency', { type: 'error' });
+            }
+            if (config.gap_value == null || config.gap_value < 0) {
+                return showToast('Set a valid gap (0 or more)', { type: 'error' });
+            }
+            const freqMs = config.frequency_value * ({ seconds: 1000, minutes: 60000, hours: 3600000, days: 86400000, weeks: 604800000 }[config.frequency_unit] || 60000);
+            const gapMs = config.gap_value * ({ seconds: 1000, minutes: 60000, hours: 3600000, days: 86400000, weeks: 604800000 }[config.gap_unit] || 60000);
+            if (gapMs >= freqMs) {
+                return showToast('Gap must be shorter than frequency', { type: 'error' });
+            }
+            if (new Date(config.starts_at) < new Date()) {
+                return showToast('Start time cannot be in the past', { type: 'error' });
+            }
+            await saveScheduleConfig();
+            await recalcAndSave();
+            document.getElementById('btn-save-schedule').textContent = 'Update';
+            showToast('Schedule saved');
         });
 
         seasonDetail.querySelector('#btn-add-mystery')?.addEventListener('click', async () => {
@@ -569,8 +584,17 @@ async function openSeasonDetail(id) {
                         if (startInput) startInput.value = api.toDatetimeLocal(new Date().toISOString());
                     }
                     await api.addMysteryToSeason(id, item.dataset.tid);
-                    await saveScheduleConfig();
-                    await recalcAndSave();
+                    const config = getScheduleConfig();
+                    if (config.frequency_value && config.gap_value != null) {
+                        await saveScheduleConfig();
+                        await recalcAndSave();
+                    } else {
+                        const updated = await api.getMysteriesBySeason(id);
+                        document.getElementById('season-mysteries-table').innerHTML = renderSeasonMysteriesTable(updated, season);
+                        const titleEl = seasonDetail.querySelector('#season-mysteries-table')?.closest('.card')?.querySelector('.card__title');
+                        if (titleEl) titleEl.textContent = `Mysteries (${updated.length})`;
+                        wireMysteriesTable(id, season);
+                    }
                     showToast('Mystery added');
                 });
             });
@@ -600,7 +624,58 @@ async function openSeasonDetail(id) {
                 });
                 row.addEventListener('drop', async e => {
                     e.preventDefault();
-                    const orderedIds = [...tbody.querySelectorAll('tr[draggable]')].map(r => r.dataset.id);
+                    const draggedRow = tbody.querySelector('.dragging');
+                    const draggedId = draggedRow?.dataset.id;
+                    if (!draggedId) return;
+                    const wasOverride = draggedRow.querySelector('.btn-reset-timing') !== null;
+
+                    const orderedIds = [...tbody.querySelectorAll('tr')].map(r => r.dataset.id);
+
+                    if (wasOverride) {
+                        await api.reorderSeasonMysteries(seasonId, orderedIds);
+                        const fresh = await api.getMysteriesBySeason(seasonId);
+                        document.getElementById('season-mysteries-table').innerHTML = renderSeasonMysteriesTable(fresh, season);
+                        const titleEl = seasonDetail.querySelector('#season-mysteries-table')?.closest('.card')?.querySelector('.card__title');
+                        if (titleEl) titleEl.textContent = `Mysteries (${fresh.length})`;
+                        wireMysteriesTable(seasonId, seasonObj);
+                        const newTbody = seasonDetail.querySelector('#season-mysteries-table tbody');
+                        const editBtn = newTbody?.querySelector(`tr[data-id="${draggedId}"] .btn-edit-timing`);
+                        if (editBtn) editBtn.click();
+                        return;
+                    }
+
+                    const config = getScheduleConfig();
+                    if (config.frequency_value && config.gap_value != null) {
+                        const freqMs = config.frequency_value * ({ seconds: 1000, minutes: 60000, hours: 3600000, days: 86400000, weeks: 604800000 }[config.frequency_unit] || 60000);
+                        const gapMs = config.gap_value * ({ seconds: 1000, minutes: 60000, hours: 3600000, days: 86400000, weeks: 604800000 }[config.gap_unit] || 60000);
+                        const durationMs = freqMs - gapMs;
+                        const allRows = [...tbody.querySelectorAll('tr')];
+                        const dragIdx = allRows.findIndex(r => r.dataset.id === draggedId);
+                        const prevRow = dragIdx > 0 ? allRows[dragIdx - 1] : null;
+                        const nextRow = dragIdx < allRows.length - 1 ? allRows[dragIdx + 1] : null;
+                        const nextIsOverride = nextRow?.querySelector('.btn-reset-timing') !== null;
+
+                        if (nextIsOverride && nextRow.dataset.pub) {
+                            const nextPubMs = new Date(nextRow.dataset.pub).getTime();
+                            let windowStart;
+                            if (prevRow && prevRow.dataset.rev) {
+                                windowStart = new Date(prevRow.dataset.rev).getTime() + gapMs;
+                            } else if (config.starts_at) {
+                                windowStart = new Date(config.starts_at).getTime();
+                            } else {
+                                windowStart = nextPubMs - freqMs;
+                            }
+                            const availableMs = nextPubMs - windowStart - gapMs;
+                            const MIN_DURATION = 10000;
+                            if (availableMs < MIN_DURATION) {
+                                await recalcAndSave();
+                                showToast('Not enough room — mystery cannot fit here', { type: 'error' });
+                                return;
+                            }
+                        }
+                    }
+
+                    await api.updateMysteryTiming(draggedId, { override: false });
                     await api.reorderSeasonMysteries(seasonId, orderedIds);
                     await recalcAndSave();
                     showToast('Order updated');
@@ -624,12 +699,26 @@ async function openSeasonDetail(id) {
                     saveBtn.addEventListener('click', async () => {
                         const newPub = document.getElementById(`edit-pub-${mid}`).value;
                         const newRev = document.getElementById(`edit-rev-${mid}`).value;
-                        if (newPub && newRev && new Date(newRev) <= new Date(newPub)) {
+                        if (!newPub || !newRev) {
+                            return showToast('Both publish and reveal times are required', { type: 'error' });
+                        }
+                        const pubDate = new Date(newPub);
+                        const revDate = new Date(newRev);
+                        if (revDate <= pubDate) {
                             return showToast('Reveal must be after publish', { type: 'error' });
                         }
+                        const allRows = [...tbody.querySelectorAll('tr')];
+                        const rowIdx = allRows.findIndex(r => r.dataset.id === mid);
+                        const prevRow = rowIdx > 0 ? allRows[rowIdx - 1] : null;
+                        if (prevRow && prevRow.dataset.rev) {
+                            const prevReveal = new Date(prevRow.dataset.rev);
+                            if (pubDate < prevReveal) {
+                                return showToast('Cannot publish before the previous mystery is revealed', { type: 'error' });
+                            }
+                        }
                         await api.updateMysteryTiming(mid, {
-                            published_at: newPub ? new Date(newPub).toISOString() : null,
-                            reveals_at: newRev ? new Date(newRev).toISOString() : null,
+                            published_at: pubDate.toISOString(),
+                            reveals_at: revDate.toISOString(),
                             override: true
                         });
                         await recalcAndSave();
