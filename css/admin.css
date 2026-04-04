@@ -542,6 +542,12 @@ input[type="datetime-local"].form-input {
 
 .clickable-row { cursor: pointer; }
 
+/* === Drag & Drop === */
+tr.dragging { opacity: 0.4; }
+tr[draggable] { transition: opacity 0.15s; }
+
+.mystery-picker-item:hover { background: #f9fafb; }
+
 /* === Toast === */
 
 .toast-container {

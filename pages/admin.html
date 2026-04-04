@@ -89,11 +89,6 @@
                             <div class="map-picker" id="answer-map"></div>
                             <div class="map-picker__coords" id="answer-coords">No location selected</div>
                         </div>
-                        <div class="form-group" id="game-entries-section" style="margin-top:18px">
-                            <label class="form-label">Games & scheduling</label>
-                            <div id="game-entries-list" style="margin-top:8px"></div>
-                            <button class="btn btn--plain btn--small" id="btn-add-game-entry" style="margin-top:8px">+ Add game</button>
-                        </div>
                     </div>
                     <div class="card__footer">
                         <button class="btn btn--plain" id="btn-cancel-mystery" style="display:none">Cancel</button>
@@ -179,7 +174,6 @@ function switchTab(tab) {
         document.getElementById('btn-new-season-header').addEventListener('click', promptNewSeason);
     }
     if (tab === 'mysteries') {
-        refreshSeasonsCache().then(() => renderGameEntries());
         setTimeout(() => { answerMap?.invalidateSize(); }, 200);
     }
 }
@@ -349,6 +343,28 @@ function wireWaitingImageUploads() {
     }
 }
 
+function renderSeasonMysteriesTable(mysteries, season) {
+    if (!mysteries.length) return '<div class="card__body"><div class="empty-state" style="padding:16px 0">No mysteries in this game. Click "+ Add mystery" above.</div></div>';
+    return `<table class="admin-table">
+        <thead><tr><th style="width:30px"></th><th>Place</th><th>Status</th><th>Publish</th><th>Reveal</th><th></th></tr></thead>
+        <tbody>${mysteries.map(m => {
+            const st = api.mysteryStatus(m);
+            const locked = st === 'live' || st === 'revealed';
+            return `<tr ${locked ? '' : 'draggable="true"'} data-id="${m.id}" data-pub="${m.published_at || ''}" data-rev="${m.reveals_at || ''}" data-status="${st}">
+                <td style="${locked ? 'color:#ddd' : 'cursor:grab;color:#999'};text-align:center" title="${locked ? 'Cannot reorder (already active/revealed)' : 'Drag to reorder'}">${locked ? '—' : '⠿'}</td>
+                <td style="font-weight:500">${esc(m.title || '(untitled)')}${m.override ? ' <span style="color:var(--admin-accent);font-size:11px" title="Manual override">✎</span>' : ''}</td>
+                <td><span class="badge badge--${st}">${st}</span></td>
+                <td class="td-publish">${api.formatDate(m.published_at)}</td>
+                <td class="td-reveal">${api.formatDate(m.reveals_at)}</td>
+                <td class="actions">
+                    ${locked ? '' : `<button class="btn btn--plain btn--small btn-edit-timing" data-id="${m.id}">Edit</button>`}
+                    ${m.override && !locked ? `<button class="btn btn--plain btn--small btn-reset-timing" data-id="${m.id}">Reset</button>` : ''}
+                    ${locked ? '' : `<button class="btn btn--danger btn--small btn-remove-mystery" data-id="${m.id}">Remove</button>`}
+                </td>
+            </tr>`;
+        }).join('')}</tbody></table>`;
+}
+
 async function openSeasonDetail(id) {
     seasonsList.style.display = 'none';
     seasonDetail.style.display = 'block';
@@ -434,22 +450,217 @@ async function openSeasonDetail(id) {
                         }).join('')}</tbody></table>` : '<div class="empty-state" style="padding:16px 0">No members yet</div>'}
                 </div>
             </div>
+            <div class="card" id="schedule-card" ${!mysteries.length ? 'style="opacity:0.45;pointer-events:none"' : ''}>
+                <div class="card__header">
+                    <span class="card__title">Schedule</span>
+                    ${!mysteries.length ? '<span style="font-size:12px;color:var(--admin-text-secondary)">Add a mystery first</span>' : ''}
+                </div>
+                <div class="card__body">
+                    <div class="form-row">
+                        <div class="form-group" style="flex:1">
+                            <label class="form-label">Start time</label>
+                            <input class="form-input" type="datetime-local" id="sched-start" value="${mysteries.length ? api.toDatetimeLocal(season.starts_at) : api.toDatetimeLocal(new Date().toISOString())}">
+                        </div>
+                        <div class="form-group" style="flex:0.6">
+                            <label class="form-label">Frequency</label>
+                            <div style="display:flex;gap:6px">
+                                <input class="form-input" type="number" id="sched-freq-val" min="1" value="${season.frequency_value || ''}" placeholder="30" style="width:70px">
+                                <select class="form-input" id="sched-freq-unit">
+                                    ${['seconds','minutes','hours','days','weeks'].map(u => `<option value="${u}" ${(season.frequency_unit || 'minutes') === u ? 'selected' : ''}>${u}</option>`).join('')}
+                                </select>
+                            </div>
+                        </div>
+                        <div class="form-group" style="flex:0.6">
+                            <label class="form-label">Gap</label>
+                            <div style="display:flex;gap:6px">
+                                <input class="form-input" type="number" id="sched-gap-val" min="0" value="${season.gap_value || ''}" placeholder="5" style="width:70px">
+                                <select class="form-input" id="sched-gap-unit">
+                                    ${['seconds','minutes','hours','days','weeks'].map(u => `<option value="${u}" ${(season.gap_unit || 'minutes') === u ? 'selected' : ''}>${u}</option>`).join('')}
+                                </select>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
             <div class="card">
                 <div class="card__header">
                     <span class="card__title">Mysteries (${mysteries.length})</span>
+                    <button class="btn btn--primary btn--small" id="btn-add-mystery">+ Add mystery</button>
                 </div>
-                ${mysteries.length ? `<table class="admin-table">
-                    <thead><tr><th>Place</th><th>Status</th><th>Publish</th><th>Reveal</th></tr></thead>
-                    <tbody>${mysteries.map(m => {
-                        const st = api.mysteryStatus(m);
-                        return `<tr>
-                            <td style="font-weight:500">${esc(m.title || '(untitled)')}</td>
-                            <td><span class="badge badge--${st}">${st}</span></td>
-                            <td>${api.formatDate(m.published_at)}</td>
-                            <td>${api.formatDate(m.reveals_at)}</td>
-                        </tr>`;
-                    }).join('')}</tbody></table>` : '<div class="card__body"><div class="empty-state" style="padding:16px 0">No mysteries in this game</div></div>'}
+                <div id="season-mysteries-table">
+                    ${renderSeasonMysteriesTable(mysteries, season)}
+                </div>
             </div>`;
+
+        function getScheduleConfig() {
+            return {
+                starts_at: document.getElementById('sched-start')?.value ? new Date(document.getElementById('sched-start').value).toISOString() : season.starts_at,
+                frequency_value: parseInt(document.getElementById('sched-freq-val')?.value) || null,
+                frequency_unit: document.getElementById('sched-freq-unit')?.value || 'minutes',
+                gap_value: parseInt(document.getElementById('sched-gap-val')?.value) || null,
+                gap_unit: document.getElementById('sched-gap-unit')?.value || 'minutes'
+            };
+        }
+
+        async function saveScheduleConfig() {
+            const config = getScheduleConfig();
+            await api.updateSeason(id, {
+                starts_at: config.starts_at,
+                frequency_value: config.frequency_value,
+                frequency_unit: config.frequency_unit,
+                gap_value: config.gap_value,
+                gap_unit: config.gap_unit
+            });
+        }
+
+        async function recalcAndSave() {
+            const config = getScheduleConfig();
+            const fresh = await api.getMysteriesBySeason(id);
+            const scheduled = api.computeSchedule(fresh, config);
+            await api.batchUpdateTimings(scheduled.map(m => ({
+                id: m.id, published_at: m.published_at, reveals_at: m.reveals_at, override: m.override ?? false
+            })));
+            const updated = await api.getMysteriesBySeason(id);
+            document.getElementById('season-mysteries-table').innerHTML = renderSeasonMysteriesTable(updated, season);
+            const titleEl = seasonDetail.querySelector('#season-mysteries-table')?.closest('.card')?.querySelector('.card__title');
+            if (titleEl) titleEl.textContent = `Mysteries (${updated.length})`;
+            wireMysteriesTable(id, season);
+        }
+
+        ['sched-start', 'sched-freq-val', 'sched-freq-unit', 'sched-gap-val', 'sched-gap-unit'].forEach(elId => {
+            seasonDetail.querySelector('#' + elId)?.addEventListener('change', async () => {
+                await saveScheduleConfig();
+                await recalcAndSave();
+                showToast('Schedule updated');
+            });
+        });
+
+        seasonDetail.querySelector('#sched-start')?.addEventListener('blur', () => {
+            const val = document.getElementById('sched-start').value;
+            if (val && new Date(val) < new Date()) {
+                showToast('Start time is in the past — schedule may start immediately', { type: 'error' });
+            }
+        });
+
+        seasonDetail.querySelector('#btn-add-mystery')?.addEventListener('click', async () => {
+            const [allMysteries, currentMysteries] = await Promise.all([api.getMysteries(), api.getMysteriesBySeason(id)]);
+            const library = api.getLibraryMysteries(allMysteries);
+            const existingTemplateIds = new Set(currentMysteries.map(m => m.template_id));
+            const available = library.filter(m => !existingTemplateIds.has(m.template_id || m.id));
+            if (!available.length) return showToast('No mysteries available. Create some in the Mysteries tab first.');
+            showModal('Add mystery', `
+                <div style="max-height:400px;overflow-y:auto">
+                    ${available.map(m => `
+                        <div class="mystery-picker-item" data-tid="${m.template_id || m.id}" style="display:flex;align-items:center;gap:12px;padding:10px 0;border-bottom:1px solid #f0f0f0;cursor:pointer">
+                            ${m.image_url ? `<img src="${esc(m.image_url)}" style="width:48px;height:36px;object-fit:cover;border-radius:4px">` : '<div style="width:48px;height:36px;background:#f0f0f0;border-radius:4px"></div>'}
+                            <span style="font-weight:500">${esc(m.title || '(untitled)')}</span>
+                        </div>
+                    `).join('')}
+                </div>`, [{ label: 'Cancel' }]);
+            document.querySelectorAll('.mystery-picker-item').forEach(item => {
+                item.addEventListener('click', async () => {
+                    closeModal();
+                    const schedCard = document.getElementById('schedule-card');
+                    if (schedCard?.style.opacity === '0.45') {
+                        schedCard.style.opacity = '';
+                        schedCard.style.pointerEvents = '';
+                        schedCard.querySelector('.card__header span:last-child')?.remove();
+                        const startInput = document.getElementById('sched-start');
+                        if (startInput) startInput.value = api.toDatetimeLocal(new Date().toISOString());
+                    }
+                    await api.addMysteryToSeason(id, item.dataset.tid);
+                    await saveScheduleConfig();
+                    await recalcAndSave();
+                    showToast('Mystery added');
+                });
+            });
+        });
+
+        function wireMysteriesTable(seasonId, seasonObj) {
+            const tbody = seasonDetail.querySelector('#season-mysteries-table tbody');
+            if (!tbody) return;
+
+            tbody.querySelectorAll('tr[draggable]').forEach(row => {
+                row.addEventListener('dragstart', e => {
+                    e.dataTransfer.effectAllowed = 'move';
+                    e.dataTransfer.setData('text/plain', row.dataset.id);
+                    row.classList.add('dragging');
+                });
+                row.addEventListener('dragend', () => row.classList.remove('dragging'));
+                row.addEventListener('dragover', e => {
+                    e.preventDefault();
+                    e.dataTransfer.dropEffect = 'move';
+                    const dragging = tbody.querySelector('.dragging');
+                    if (dragging && dragging !== row) {
+                        const rect = row.getBoundingClientRect();
+                        const mid = rect.top + rect.height / 2;
+                        if (e.clientY < mid) tbody.insertBefore(dragging, row);
+                        else tbody.insertBefore(dragging, row.nextSibling);
+                    }
+                });
+                row.addEventListener('drop', async e => {
+                    e.preventDefault();
+                    const orderedIds = [...tbody.querySelectorAll('tr[draggable]')].map(r => r.dataset.id);
+                    await api.reorderSeasonMysteries(seasonId, orderedIds);
+                    await recalcAndSave();
+                    showToast('Order updated');
+                });
+            });
+
+            tbody.querySelectorAll('.btn-edit-timing').forEach(btn => {
+                btn.addEventListener('click', () => {
+                    const row = btn.closest('tr');
+                    const mid = row.dataset.id;
+                    const pubTd = row.querySelector('.td-publish');
+                    const revTd = row.querySelector('.td-reveal');
+                    const pubVal = row.dataset.pub || '';
+                    const revVal = row.dataset.rev || '';
+                    pubTd.innerHTML = `<input class="form-input" type="datetime-local" value="${api.toDatetimeLocal(pubVal)}" style="font-size:12px;padding:4px 6px" id="edit-pub-${mid}">`;
+                    revTd.innerHTML = `<input class="form-input" type="datetime-local" value="${api.toDatetimeLocal(revVal)}" style="font-size:12px;padding:4px 6px" id="edit-rev-${mid}">`;
+                    const saveBtn = document.createElement('button');
+                    saveBtn.className = 'btn btn--primary btn--small';
+                    saveBtn.textContent = 'Save';
+                    btn.replaceWith(saveBtn);
+                    saveBtn.addEventListener('click', async () => {
+                        const newPub = document.getElementById(`edit-pub-${mid}`).value;
+                        const newRev = document.getElementById(`edit-rev-${mid}`).value;
+                        if (newPub && newRev && new Date(newRev) <= new Date(newPub)) {
+                            return showToast('Reveal must be after publish', { type: 'error' });
+                        }
+                        await api.updateMysteryTiming(mid, {
+                            published_at: newPub ? new Date(newPub).toISOString() : null,
+                            reveals_at: newRev ? new Date(newRev).toISOString() : null,
+                            override: true
+                        });
+                        await recalcAndSave();
+                        showToast('Timing updated');
+                    });
+                });
+            });
+
+            tbody.querySelectorAll('.btn-reset-timing').forEach(btn => {
+                btn.addEventListener('click', async () => {
+                    await api.updateMysteryTiming(btn.dataset.id, { override: false });
+                    await recalcAndSave();
+                    showToast('Override cleared');
+                });
+            });
+
+            tbody.querySelectorAll('.btn-remove-mystery').forEach(btn => {
+                btn.addEventListener('click', () => {
+                    showModal('Remove mystery?', '<p style="color:#616161">Remove this mystery from the game? Associated guesses will be deleted.</p>', [
+                        { label: 'Cancel' },
+                        { label: 'Remove', cls: 'btn--danger', fn: async () => {
+                            await api.removeMysteryInstance(btn.dataset.id);
+                            await recalcAndSave();
+                            showToast('Mystery removed');
+                        }}
+                    ]);
+                });
+            });
+        }
+
+        wireMysteriesTable(id, season);
         seasonDetail.querySelector('#btn-season-back').addEventListener('click', renderSeasons);
         seasonDetail.querySelector('#btn-rename-season')?.addEventListener('click', async () => {
             const newName = document.getElementById('season-rename').value.trim();
@@ -521,63 +732,6 @@ switchTab('seasons');
 
 const mysteriesList = document.getElementById('mysteries-list');
 let answerMap, answerMarker, resolvedLocationName = 'Unknown', resolvedLocationLevels = [];
-let allSeasonsCache = [];
-let gameEntries = [];
-
-async function refreshSeasonsCache() {
-    allSeasonsCache = await api.getSeasons();
-}
-
-function seasonOptions(selectedId) {
-    return allSeasonsCache.map(s =>
-        `<option value="${s.id}" ${s.id === selectedId ? 'selected' : ''}>${esc(s.name)}</option>`
-    ).join('');
-}
-
-function renderGameEntries() {
-    const list = document.getElementById('game-entries-list');
-    if (!list) return;
-    list.innerHTML = gameEntries.map((ge, i) => `
-        <div class="form-row" style="margin-bottom:8px;align-items:flex-end" data-ge-idx="${i}">
-            <div class="form-group" style="flex:1.2">
-                ${i === 0 ? '<label class="form-label">Game</label>' : ''}
-                <select class="form-input ge-season" data-idx="${i}">${seasonOptions(ge.season_id)}</select>
-            </div>
-            <div class="form-group" style="flex:1">
-                ${i === 0 ? '<label class="form-label">Publish</label>' : ''}
-                <input class="form-input ge-publish" type="datetime-local" data-idx="${i}" value="${ge.published_at || ''}">
-            </div>
-            <div class="form-group" style="flex:1">
-                ${i === 0 ? '<label class="form-label">Reveal</label>' : ''}
-                <input class="form-input ge-reveal" type="datetime-local" data-idx="${i}" value="${ge.reveals_at || ''}">
-            </div>
-            <button class="btn btn--danger ge-remove" data-idx="${i}" ${gameEntries.length <= 1 ? 'disabled' : ''}>&times;</button>
-        </div>`).join('');
-
-    list.querySelectorAll('.ge-season').forEach(el => {
-        el.addEventListener('change', () => { gameEntries[+el.dataset.idx].season_id = el.value; });
-    });
-    list.querySelectorAll('.ge-publish').forEach(el => {
-        el.addEventListener('change', () => { gameEntries[+el.dataset.idx].published_at = el.value; });
-    });
-    list.querySelectorAll('.ge-reveal').forEach(el => {
-        el.addEventListener('change', () => { gameEntries[+el.dataset.idx].reveals_at = el.value; });
-    });
-    list.querySelectorAll('.ge-remove').forEach(el => {
-        el.addEventListener('click', () => {
-            gameEntries.splice(+el.dataset.idx, 1);
-            renderGameEntries();
-        });
-    });
-
-    requestAnimationFrame(() => {
-        const refInput = list.querySelector('.ge-publish');
-        if (refInput) {
-            const h = refInput.offsetHeight + 'px';
-            list.querySelectorAll('.ge-remove').forEach(btn => { btn.style.height = h; });
-        }
-    });
-}
 
 let reverseGeoTimer = null;
 function updateCoordsLabel(latlng) {
@@ -611,11 +765,7 @@ function updateCoordsLabel(latlng) {
     }, 600);
 }
 
-async function initMysteryForm() {
-    await refreshSeasonsCache();
-    gameEntries = [{ season_id: allSeasonsCache[0]?.id || '', published_at: '', reveals_at: '', instance_id: null }];
-    renderGameEntries();
-
+function initMysteryForm() {
     answerMap = L.map('answer-map').setView([20, 0], 2);
     L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
         attribution: '&copy; OpenStreetMap contributors',
@@ -639,11 +789,6 @@ async function initMysteryForm() {
         if (answerMarker) answerMap.removeLayer(answerMarker);
         answerMarker = L.marker(e.latlng).addTo(answerMap);
         updateCoordsLabel(e.latlng);
-    });
-
-    document.getElementById('btn-add-game-entry').addEventListener('click', () => {
-        gameEntries.push({ season_id: allSeasonsCache[0]?.id || '', published_at: '', reveals_at: '', instance_id: null });
-        renderGameEntries();
     });
 }
 
@@ -719,8 +864,6 @@ function resetMysteryForm() {
     pendingDimensions = null;
     if (answerMarker) { answerMap.removeLayer(answerMarker); answerMarker = null; }
     document.getElementById('answer-coords').textContent = 'No location selected';
-    gameEntries = [{ season_id: allSeasonsCache[0]?.id || '', published_at: '', reveals_at: '', instance_id: null }];
-    renderGameEntries();
 }
 
 function editTemplate(template) {
@@ -750,15 +893,6 @@ function editTemplate(template) {
     } else {
         document.getElementById('answer-coords').textContent = 'No location selected';
     }
-    gameEntries = m.instances.map(inst => ({
-        season_id: inst.season_id,
-        published_at: api.toDatetimeLocal(inst.published_at),
-        reveals_at: api.toDatetimeLocal(inst.reveals_at),
-        instance_id: inst.id,
-        orig_published_at: inst.published_at,
-        orig_reveals_at: inst.reveals_at
-    }));
-    renderGameEntries();
     document.getElementById('mystery-form-card').scrollIntoView({ behavior: 'smooth' });
 }
 
@@ -769,27 +903,6 @@ document.getElementById('btn-save-mystery').addEventListener('click', async () =
     const editTemplateId = document.getElementById('mystery-edit-template-id').value;
     const title = resolvedLocationName || 'Unknown';
     const type = document.getElementById('mystery-type').value;
-
-    if (!gameEntries.length || !gameEntries[0].season_id) return showToast('Add at least one game', { type: 'error' });
-
-    for (const ge of gameEntries) {
-        if (!ge.season_id) return showToast('Select a game for each entry', { type: 'error' });
-        if (ge.published_at && ge.reveals_at) {
-            if (new Date(ge.reveals_at) <= new Date(ge.published_at)) return showToast('Reveal time must be after publish time', { type: 'error' });
-            const existing = await api.getMysteriesBySeason(ge.season_id);
-            const others = existing.filter(m => !gameEntries.some(g => g.instance_id === m.id));
-            const overlap = others.find(m => {
-                if (!m.published_at || !m.reveals_at) return false;
-                const pub = new Date(m.published_at);
-                const rev = new Date(m.reveals_at);
-                return new Date(ge.published_at) < new Date(rev.getTime() + 1000) && new Date(ge.reveals_at) > new Date(pub.getTime() - 1000);
-            });
-            if (overlap) {
-                const sName = allSeasonsCache.find(s => s.id === ge.season_id)?.name || '';
-                return showToast(`Overlap in "${sName}": "${overlap.title}" (${api.formatDate(overlap.published_at)} → ${api.formatDate(overlap.reveals_at)})`, { type: 'error', duration: 8000 });
-            }
-        }
-    }
 
     setButtonLoading(saveBtn, true);
 
@@ -812,31 +925,8 @@ document.getElementById('btn-save-mystery').addEventListener('click', async () =
     try {
         if (editTemplateId) {
             await api.updateMysteryContent(editTemplateId, content);
-            for (const ge of gameEntries) {
-                const timing = {
-                    published_at: ge.published_at ? new Date(ge.published_at).toISOString() : null,
-                    reveals_at: ge.reveals_at ? new Date(ge.reveals_at).toISOString() : null
-                };
-                if (ge.instance_id) {
-                    const timingChanged = timing.published_at !== ge.orig_published_at
-                                       || timing.reveals_at !== ge.orig_reveals_at;
-                    if (timingChanged) await api.deleteGuessesForMystery(ge.instance_id);
-                    await api.updateMysteryTiming(ge.instance_id, { ...timing, season_id: ge.season_id });
-                } else {
-                    await api.addMysteryToGame(editTemplateId, content, {
-                        season_id: ge.season_id,
-                        published_at: timing.published_at,
-                        reveals_at: timing.reveals_at
-                    });
-                }
-            }
         } else {
-            const entries = gameEntries.map(ge => ({
-                season_id: ge.season_id,
-                published_at: ge.published_at ? new Date(ge.published_at).toISOString() : null,
-                reveals_at: ge.reveals_at ? new Date(ge.reveals_at).toISOString() : null
-            }));
-            await api.createMysteryInstances(content, entries);
+            await api.createMystery(content);
         }
         setButtonLoading(saveBtn, false);
         resetMysteryForm();
@@ -855,15 +945,15 @@ async function renderMysteries() {
         const templates = api.groupByTemplate(mysteries);
         mysteriesList.innerHTML = `<div class="card"><table class="admin-table">
             <thead><tr>
-                <th>Place</th><th>Games</th><th>Status</th><th></th>
+                <th>Place</th><th>Games</th><th></th>
             </tr></thead>
             <tbody>${templates.map(t => {
-                const statuses = [...new Set(t.instances.map(i => api.mysteryStatus(i)))];
-                const gameNames = t.instances.map(i => i.seasons?.name || '—').join(', ');
+                const gameInstances = t.instances.filter(i => i.season_id);
+                const gameNames = gameInstances.map(i => i.seasons?.name || '—');
+                const gamesLabel = gameNames.length ? esc(gameNames.join(', ')) : '<span style="color:var(--admin-text-secondary)">Not assigned</span>';
                 return `<tr class="clickable-row" data-template-id="${t.template_id}">
                     <td style="font-weight:500">${esc(t.title || '(untitled)')}</td>
-                    <td>${esc(gameNames)} <span style="color:var(--admin-text-secondary)">(${t.instances.length})</span></td>
-                    <td>${statuses.map(st => `<span class="badge badge--${st}">${st}</span>`).join(' ')}</td>
+                    <td>${gamesLabel}</td>
                     <td class="actions">
                         <button class="btn btn--plain btn--small btn-edit-template" data-tid="${t.template_id}">Edit</button>
                         <button class="btn btn--danger btn--small btn-del-template" data-tid="${t.template_id}">Delete</button>
