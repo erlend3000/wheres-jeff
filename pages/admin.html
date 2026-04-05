@@ -902,7 +902,9 @@ function updateCoordsLabel(latlng) {
 }
 
 function initMysteryForm() {
-    answerMap = L.map('answer-map').setView([20, 0], 2);
+    answerMap = L.map('answer-map', { scrollWheelZoom: false }).setView([20, 0], 2);
+    answerMap.on('focus', () => answerMap.scrollWheelZoom.enable());
+    answerMap.on('blur', () => answerMap.scrollWheelZoom.disable());
     L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
         attribution: '&copy; OpenStreetMap contributors',
         maxZoom: 19
