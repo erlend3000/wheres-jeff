@@ -632,7 +632,33 @@ async function openSeasonDetail(id) {
                     const orderedIds = [...tbody.querySelectorAll('tr')].map(r => r.dataset.id);
 
                     if (wasOverride) {
+                        const dragPub = draggedRow.dataset.pub;
+                        const dragRev = draggedRow.dataset.rev;
+                        let hasConflict = false;
+                        if (dragPub && dragRev) {
+                            const dPubMs = new Date(dragPub).getTime();
+                            const dRevMs = new Date(dragRev).getTime();
+                            const allRows = [...tbody.querySelectorAll('tr')];
+                            for (const otherRow of allRows) {
+                                if (otherRow.dataset.id === draggedId) continue;
+                                const oPub = otherRow.dataset.pub;
+                                const oRev = otherRow.dataset.rev;
+                                if (!oPub || !oRev) continue;
+                                if (dPubMs < new Date(oRev).getTime() && dRevMs > new Date(oPub).getTime()) {
+                                    hasConflict = true;
+                                    break;
+                                }
+                            }
+                        } else {
+                            hasConflict = true;
+                        }
+
                         await api.reorderSeasonMysteries(seasonId, orderedIds);
+                        if (!hasConflict) {
+                            await recalcAndSave();
+                            showToast('Order updated');
+                            return;
+                        }
                         const fresh = await api.getMysteriesBySeason(seasonId);
                         document.getElementById('season-mysteries-table').innerHTML = renderSeasonMysteriesTable(fresh, season);
                         const titleEl = seasonDetail.querySelector('#season-mysteries-table')?.closest('.card')?.querySelector('.card__title');
@@ -702,26 +728,47 @@ async function openSeasonDetail(id) {
                         if (!newPub || !newRev) {
                             return showToast('Both publish and reveal times are required', { type: 'error' });
                         }
-                        const pubDate = new Date(newPub);
-                        const revDate = new Date(newRev);
-                        if (revDate <= pubDate) {
+                        const pubMs = new Date(newPub).getTime();
+                        const revMs = new Date(newRev).getTime();
+                        if (revMs <= pubMs) {
                             return showToast('Reveal must be after publish', { type: 'error' });
                         }
                         const allRows = [...tbody.querySelectorAll('tr')];
-                        const rowIdx = allRows.findIndex(r => r.dataset.id === mid);
-                        const prevRow = rowIdx > 0 ? allRows[rowIdx - 1] : null;
-                        if (prevRow && prevRow.dataset.rev) {
-                            const prevReveal = new Date(prevRow.dataset.rev);
-                            if (pubDate < prevReveal) {
-                                return showToast('Cannot publish before the previous mystery is revealed', { type: 'error' });
+                        for (const otherRow of allRows) {
+                            if (otherRow.dataset.id === mid) continue;
+                            const oPub = otherRow.dataset.pub;
+                            const oRev = otherRow.dataset.rev;
+                            if (!oPub || !oRev) continue;
+                            const oPubMs = new Date(oPub).getTime();
+                            const oRevMs = new Date(oRev).getTime();
+                            if (pubMs < oRevMs && revMs > oPubMs) {
+                                return showToast('Time interval overlaps with another mystery', { type: 'error' });
                             }
                         }
                         await api.updateMysteryTiming(mid, {
-                            published_at: pubDate.toISOString(),
-                            reveals_at: revDate.toISOString(),
+                            published_at: new Date(newPub).toISOString(),
+                            reveals_at: new Date(newRev).toISOString(),
                             override: true
                         });
+                        const fresh = await api.getMysteriesBySeason(seasonId);
+                        const correctOrder = [...fresh].sort((a, b) => {
+                            const aTime = a.published_at ? new Date(a.published_at).getTime() : Infinity;
+                            const bTime = b.published_at ? new Date(b.published_at).getTime() : Infinity;
+                            return aTime - bTime;
+                        });
+                        const needsReorder = correctOrder.some((m, i) => m.sort_order !== i);
+                        if (needsReorder) {
+                            await api.reorderSeasonMysteries(seasonId, correctOrder.map(m => m.id));
+                        }
                         await recalcAndSave();
+                        if (needsReorder) {
+                            const movedRow = seasonDetail.querySelector(`#season-mysteries-table tr[data-id="${mid}"]`);
+                            if (movedRow) {
+                                movedRow.style.transition = 'background 0.6s';
+                                movedRow.style.background = '#fff8e1';
+                                setTimeout(() => { movedRow.style.background = ''; }, 800);
+                            }
+                        }
                         showToast('Timing updated');
                     });
                 });
