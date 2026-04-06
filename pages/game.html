@@ -1207,13 +1207,29 @@
             }, 1500);
         }
 
+        function dbg(msg) {
+            let box = document.getElementById('dbg-box');
+            if (!box) {
+                box = document.createElement('div');
+                box.id = 'dbg-box';
+                Object.assign(box.style, {
+                    position: 'fixed', bottom: '0', left: '0', right: '0',
+                    maxHeight: '40vh', overflow: 'auto', background: 'rgba(0,0,0,0.9)',
+                    color: '#0f0', fontSize: '11px', fontFamily: 'monospace',
+                    padding: '8px', zIndex: '99999', whiteSpace: 'pre-wrap'
+                });
+                document.body.appendChild(box);
+            }
+            box.textContent += msg + '\n';
+            box.scrollTop = box.scrollHeight;
+        }
+
         async function animateWinners() {
             const body = document.querySelector('.winners-body');
             if (!body) return;
 
             const categories = body.querySelectorAll('.winners-category');
-            console.log('[WINNERS] animateWinners started, categories:', categories.length);
-            console.log('[WINNERS] body has .animating:', body.classList.contains('animating'));
+            dbg(`categories: ${categories.length}, .animating: ${body.classList.contains('animating')}`);
             await wait(2500);
 
             for (const cat of categories) {
@@ -1224,32 +1240,16 @@
 
                 if (strip) {
                     const cs = getComputedStyle(strip);
-                    console.log(`[WINNERS] BEFORE reveal strip (fromLeft=${fromLeft}):`, {
-                        transform: cs.transform,
-                        opacity: cs.opacity,
-                        transition: cs.transition,
-                        display: cs.display,
-                        width: cs.width,
-                        classes: strip.className
-                    });
+                    dbg(`BEFORE strip (left=${fromLeft}): transform=${cs.transform} opacity=${cs.opacity} w=${cs.width} transition=${cs.transition}`);
                     strip.classList.add('revealed');
                     const cs2 = getComputedStyle(strip);
-                    console.log(`[WINNERS] AFTER reveal strip:`, {
-                        transform: cs2.transform,
-                        opacity: cs2.opacity
-                    });
+                    dbg(`AFTER strip: transform=${cs2.transform} opacity=${cs2.opacity}`);
                 }
                 await wait(3000);
 
                 if (banner) {
                     const cs = getComputedStyle(banner);
-                    console.log(`[WINNERS] BEFORE reveal banner (fromLeft=${fromLeft}):`, {
-                        transform: cs.transform,
-                        opacity: cs.opacity,
-                        transition: cs.transition,
-                        width: cs.width,
-                        classes: banner.className
-                    });
+                    dbg(`BEFORE banner (left=${fromLeft}): transform=${cs.transform} opacity=${cs.opacity} w=${cs.width}`);
                     banner.classList.add('revealed');
                     fireConfetti(banner, fromLeft);
                 }
@@ -1257,11 +1257,7 @@
 
                 if (value) {
                     const cs = getComputedStyle(value);
-                    console.log(`[WINNERS] BEFORE reveal value (fromLeft=${fromLeft}):`, {
-                        transform: cs.transform,
-                        opacity: cs.opacity,
-                        width: cs.width
-                    });
+                    dbg(`BEFORE value (left=${fromLeft}): transform=${cs.transform} opacity=${cs.opacity} w=${cs.width}`);
                     value.classList.add('revealed');
                 }
                 await wait(3500);
