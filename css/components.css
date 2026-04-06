@@ -191,14 +191,14 @@ wheff-card:not(.card-wrapper) {
 /* Direction: strip extends left, text aligns to left edge of card */
 .banner--from-left {
     left: var(--banner-padding);
-    padding-right: var(--banner-padding-far);
+    padding-right: calc(var(--banner-padding-far) + 0.6vw);
 }
 .banner--from-left::before  { left: -200vw; right: 0; }
 
 /* Direction: strip extends right, text aligns to right edge of card */
 .banner--from-right {
-    right: calc(var(--banner-padding) + var(--banner-skew-offset, 0vw));
-    padding-left: var(--banner-padding-far);
+    right: calc(var(--banner-padding) + var(--banner-skew-offset));
+    padding-left: calc(var(--banner-padding-far) + 0.6vw);
 }
 .banner--from-right::before { left: 0; right: -200vw; }
 
@@ -405,12 +405,12 @@ wheff-card:not(.card-wrapper) {
 
 .strip--from-right {
     padding-left: var(--banner-padding-far);
-    padding-right: calc(var(--banner-padding) + var(--banner-skew-offset));
+    padding-right: calc(var(--banner-padding) + 0.5vw);
 }
 .strip--from-right::before { left: 0; right: -100vw; }
 
 .strip--from-left {
-    padding-left: calc(var(--banner-padding) + var(--banner-skew-offset));
+    padding-left: var(--banner-padding);
     padding-right: var(--banner-padding-far);
 }
 .strip--from-left::before { left: -100vw; right: 0; }
@@ -437,6 +437,10 @@ wheff-card:not(.card-wrapper) {
 }
 .strip__arrow--left::after  { border-right: 1.94vw solid var(--color-text); }
 .strip__arrow--right::after { border-left: 1.94vw solid var(--color-text); }
+
+.strip--from-right:has(.strip__arrow) {
+    padding-right: calc(var(--banner-padding) - 0.2vw);
+}
 
 /* === Edge wrapper — positions child 50/50 on a boundary === */
 
@@ -833,6 +837,113 @@ wheff-card:not(.card-wrapper) {
     padding-top: 0;
     padding-bottom: 0.21vw;
     padding-left: 0.07vw;
+}
+
+/* === Winners card === */
+
+#winners-section {
+    margin-top: var(--section-gap);
+    scroll-margin-top: calc(var(--section-gap) / 2);
+}
+
+.winners-body {
+    width: 100%;
+    background: var(--color-accent);
+    overflow: hidden;
+    margin-top: calc(-1 * (var(--banner-height) / 2 + var(--font-size-title) * 0.84));
+    padding-top: calc(var(--banner-height) / 2 + var(--font-size-title) * 0.84 * 2);
+    padding-bottom: 11vw;
+    z-index: 1;
+}
+
+.winners-category {
+    margin-top: calc(var(--font-size-title) * 0.84);
+}
+
+.winners-category:first-child {
+    margin-top: 0;
+}
+
+.winners-category .strip {
+    position: relative;
+}
+
+.winners-category--right {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+}
+
+.winners-banner--name {
+    position: relative;
+    left: auto;
+    right: auto;
+    height: var(--banner-height);
+    transform: none;
+    z-index: 2;
+    display: flex;
+    align-items: center;
+}
+
+.winners-banner--name.banner--from-left {
+    margin-left: var(--banner-padding);
+}
+
+.winners-banner--name.banner--from-right {
+    margin-right: calc(var(--banner-padding) + var(--banner-skew-offset));
+}
+
+.winners-name-row {
+    display: flex;
+    align-items: center;
+    width: 100%;
+}
+
+.winners-name-row--left {
+    justify-content: flex-start;
+}
+
+.winners-name-row--right {
+    justify-content: flex-end;
+}
+
+.winners-name-row--left .winners-value {
+    margin-left: calc(var(--winners-value-gap) - 0.7vw);
+}
+
+.winners-name-row--right .winners-value {
+    margin-right: calc(var(--winners-value-gap) + 0.0vw);
+}
+
+.winners-value {
+    font-family: var(--font-family);
+    font-weight: var(--font-weight);
+    font-style: var(--font-style);
+    font-size: var(--font-size-title);
+    color: var(--color-text);
+    text-transform: uppercase;
+    white-space: nowrap;
+    line-height: 1;
+}
+
+/* Winners reveal animation */
+.winners-body.animating .winners-category .strip,
+.winners-body.animating .winners-banner--name,
+.winners-body.animating .winners-value {
+    opacity: 0;
+    transform: translateX(-110%);
+    transition: transform 0.7s cubic-bezier(0.16, 1, 0.3, 1), opacity 0.5s ease-out;
+}
+
+.winners-body.animating .winners-category--right .strip,
+.winners-body.animating .winners-category--right .winners-banner--name,
+.winners-body.animating .winners-category--right .winners-value {
+    transform: translateX(110%);
+}
+
+.winners-body.animating .revealed {
+    opacity: 1 !important;
+    transform: translateX(0) !important;
 }
 
 /* === Game chooser === */

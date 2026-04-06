@@ -30,9 +30,12 @@
 
     /* Banner layout */
     --banner-height: 8.2vw;
-    --banner-padding: 3.3vw;
+    --banner-padding: 4.6vw;
     --banner-padding-far: 3.96vw;
     --banner-skew-offset: 0.8vw;
+
+    /* Winners card */
+    --winners-value-gap: 3vw;
 
     /* Field layout */
     --field-height: 5.82vw;

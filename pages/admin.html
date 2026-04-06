@@ -124,6 +124,7 @@
 <script type="module">
 import { requireAuth, getProfile } from '../lib/auth.js';
 import * as api from '../lib/admin.js';
+import { checkSeasonAutoEnd } from '../lib/game.js';
 import { showToast } from '../lib/toast.js';
 
 function setButtonLoading(btn, loading) {
@@ -369,6 +370,7 @@ async function openSeasonDetail(id) {
     seasonsList.style.display = 'none';
     seasonDetail.style.display = 'block';
     try {
+        await checkSeasonAutoEnd(id);
         const [seasons, members, mysteries, allUsers, seasonScores, pendingMembers] = await Promise.all([
             api.getSeasons(), api.getSeasonMembers(id), api.getMysteriesBySeason(id), api.getUsers(), api.getSeasonScores(id), api.getPendingMembers(id)
         ]);
@@ -377,9 +379,11 @@ async function openSeasonDetail(id) {
         const memberIds = new Set(members.map(m => m.user_id));
         const available = allUsers.filter(u => !memberIds.has(u.id));
         const hasLocked = mysteries.some(m => { const st = api.mysteryStatus(m); return st === 'live' || st === 'revealed'; });
+        const isEnded = !season.active;
+        const ghostStyle = isEnded ? 'style="opacity:0.45;pointer-events:none"' : '';
         seasonDetail.innerHTML = `
             <button class="detail-back" id="btn-season-back">&larr; All games</button>
-            <div class="card">
+            <div class="card" ${ghostStyle}>
                 <div class="card__header">
                     <span class="card__title">${esc(season.name)}</span>
                     ${season.active
@@ -410,7 +414,7 @@ async function openSeasonDetail(id) {
                     </div>
                 </div>
             </div>
-            <div class="card">
+            <div class="card" ${ghostStyle}>
                 <div class="card__header">
                     <span class="card__title">Members (${members.length})</span>
                 </div>
@@ -451,7 +455,7 @@ async function openSeasonDetail(id) {
                         }).join('')}</tbody></table>` : '<div class="empty-state" style="padding:16px 0">No members yet</div>'}
                 </div>
             </div>
-            <div class="card" id="schedule-card" ${!mysteries.length || hasLocked ? 'style="opacity:0.45;pointer-events:none"' : ''}>
+            <div class="card" id="schedule-card" ${isEnded || !mysteries.length || hasLocked ? 'style="opacity:0.45;pointer-events:none"' : ''}>
                 <div class="card__header">
                     <span class="card__title">Schedule</span>
                     ${!mysteries.length ? '<span style="font-size:12px;color:var(--admin-text-secondary)">Add a mystery first</span>' : ''}
@@ -485,7 +489,7 @@ async function openSeasonDetail(id) {
                     </div>
                 </div>
             </div>
-            <div class="card">
+            <div class="card" ${ghostStyle}>
                 <div class="card__header">
                     <span class="card__title">Mysteries (${mysteries.length})</span>
                     <button class="btn btn--primary btn--small" id="btn-add-mystery">+ Add mystery</button>
@@ -813,7 +817,7 @@ async function openSeasonDetail(id) {
             if (val > 0) { await api.updateSeason(id, { max_players: val }); showToast('Max players updated'); openSeasonDetail(id); }
         });
         seasonDetail.querySelector('#btn-end-season')?.addEventListener('click', () => {
-            showModal('End game?', '<p style="color:#616161">This marks the game as ended. You can still view it.</p>', [
+            showModal('End game?', '<p style="color:#616161">The game will end after the current active mystery is revealed. Scheduled mysteries will be removed.</p>', [
                 { label: 'Cancel' },
                 { label: 'End game', cls: 'btn--danger', fn: async () => { await api.endSeason(id); showToast('Game ended'); openSeasonDetail(id); } }
             ]);

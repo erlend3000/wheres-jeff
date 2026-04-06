@@ -9,6 +9,7 @@
     <link href="https://fonts.googleapis.com/css2?family=Jost:ital,wght@0,700;0,900;1,700;1,900&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
     <link rel="stylesheet" href="../css/components.css">
+    <script src="https://cdn.jsdelivr.net/npm/canvas-confetti@1.9.3/dist/confetti.browser.min.js"></script>
     <script type="module" src="../app.js"></script>
 </head>
 <body>
@@ -42,6 +43,11 @@
             <img class="hero__logo" src="../assets/logo.png" alt="Where's Jeff?">
             <img class="hero__jeff" src="../assets/jeff.png" alt="Jeff the camel" id="jeff-img">
             <button class="hero__arrow" id="scroll-down" aria-label="Scroll down"></button>
+        </section>
+
+        <!-- Winners (shown when game is ended) -->
+        <section class="page-section" id="winners-section" style="display:none">
+            <div id="winners-content"></div>
         </section>
 
         <!-- Your Stats -->
@@ -79,6 +85,7 @@
             getNextMysteryInfo, getAppSetting,
             getGuesses, getUserGuess, submitGuess, subscribeGuesses,
             getMysteryLeaderboard, getSeasonLeaderboard,
+            checkSeasonAutoEnd, getSeasonWinners,
             formatTimeAgo, formatDistance, formatDistanceShort, formatCountdown, formatCountdownIn, formatMysteryDate,
             firstName, formatNumber, formatLocationLabel, reverseGeocode
         } from '../lib/game.js';
@@ -99,7 +106,12 @@
         document.getElementById('page-loader')?.remove();
 
         document.getElementById('scroll-down').addEventListener('click', () => {
-            document.getElementById('stats-section').scrollIntoView({ behavior: 'smooth' });
+            const winnersEl = document.getElementById('winners-section');
+            if (winnersEl && winnersEl.style.display !== 'none') {
+                winnersEl.scrollIntoView({ behavior: 'smooth' });
+            } else {
+                document.getElementById('stats-section').scrollIntoView({ behavior: 'smooth' });
+            }
         });
 
         function setBannerLoading(el, loading) {
@@ -125,6 +137,7 @@
         const LINE_GAP_VW = 0.63;
         let lastResultData = null;
         let cachedLeaderboard = null;
+        let confettiInterval = null;
 
         function addTileLayer(map) {
             L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
@@ -285,6 +298,7 @@
 
         function openChooser() {
             cleanupMystery();
+            if (confettiInterval) { clearInterval(confettiInterval); confettiInterval = null; }
             if (worldMap) { worldMap.remove(); worldMap = null; }
             document.getElementById('game-content').style.display = 'none';
             document.getElementById('chooser-section').style.display = '';
@@ -295,7 +309,8 @@
 
         function updateBottomPadding() {
             const dynamicSections = ['mystery-section', 'leaderboard-section', 'past-section'];
-            let lastVisible = document.getElementById('stats-section');
+            const winnersEl = document.getElementById('winners-section');
+            let lastVisible = winnersEl && winnersEl.style.display !== 'none' ? winnersEl : document.getElementById('stats-section');
             for (const id of dynamicSections) {
                 const el = document.getElementById(id);
                 const content = el.querySelector('div');
@@ -315,6 +330,15 @@
                 mysteries = await getSeasonMysteries(season.id);
                 currentMystery = getCurrentMystery(mysteries);
                 revealedMysteries = getRevealedMysteries(mysteries);
+
+                const shouldCheckEnd = (season.active || season.ending) && !currentMystery && revealedMysteries.length;
+                if (shouldCheckEnd) {
+                    const ended = await checkSeasonAutoEnd(season.id);
+                    if (ended) {
+                        season.active = false;
+                        season.ending = false;
+                    }
+                }
             }
 
             checkReturnToasts();
@@ -322,6 +346,7 @@
 
             await buildNavItems();
             await renderMysteryAtPosition();
+            await renderWinners();
             await renderLeaderboard();
             await renderPastMysteries();
             populateStats();
@@ -336,6 +361,11 @@
             if (!lastVisit) return;
 
             const lastDate = new Date(lastVisit);
+
+            if (season && !season.active && !currentMystery && season.ends_at && new Date(season.ends_at) > lastDate) {
+                showToast('Winners revealed');
+                return;
+            }
 
             if (currentMystery && new Date(currentMystery.published_at) > lastDate) {
                 setTimeout(() => showToast('New mystery available'), 1500);
@@ -365,9 +395,11 @@
 
         async function buildNavItems() {
             navItems = [];
+            const gameEnded = season && !season.active;
+
             if (currentMystery) {
                 navItems.push({ mystery: currentMystery, type: 'current' });
-            } else if (revealedMysteries.length) {
+            } else if (revealedMysteries.length && !gameEnded) {
                 navItems.push({ mystery: null, type: 'next' });
             }
             if (revealedMysteries.length) {
@@ -375,6 +407,8 @@
                     navItems.push({ mystery: m, type: (i === 0) ? 'latest' : 'past' });
                 });
                 if (currentMystery) {
+                    navPos = 0;
+                } else if (gameEnded) {
                     navPos = 0;
                 } else {
                     const latestGuess = await getUserGuess(revealedMysteries[0].id, userId);
@@ -911,13 +945,30 @@
             mysteries = await getSeasonMysteries(season.id);
             currentMystery = getCurrentMystery(mysteries);
             revealedMysteries = getRevealedMysteries(mysteries);
+
+            if ((season.active || season.ending) && !currentMystery && revealedMysteries.length) {
+                const ended = await checkSeasonAutoEnd(season.id);
+                if (ended) {
+                    season.active = false;
+                    season.ending = false;
+                }
+            }
+
             preloadAllMysteryImages();
             await buildNavItems();
             await renderMysteryAtPosition();
+            await renderWinners();
             await renderLeaderboard();
             await renderPastMysteries();
             populateStats();
             updateBottomPadding();
+
+            if (!season.active) {
+                const winnersEl = document.getElementById('winners-section');
+                if (winnersEl && winnersEl.style.display !== 'none') {
+                    setTimeout(() => winnersEl.scrollIntoView({ behavior: 'smooth' }), 300);
+                }
+            }
         }
 
         // ── Past Mysteries World Map ──
@@ -1015,6 +1066,174 @@
             }
             setTimeout(() => { fitWorldMap(); enforceMinZoom(worldMap); }, 100);
             setTimeout(() => { fitWorldMap(); enforceMinZoom(worldMap); }, 400);
+        }
+
+        // ── Winners ──
+
+        async function renderWinners() {
+            const section = document.getElementById('winners-section');
+            const container = document.getElementById('winners-content');
+            const testMode = new URLSearchParams(window.location.search).has('test_winners');
+
+            if (!testMode && (!season || season.active || currentMystery)) {
+                section.style.display = 'none';
+                container.innerHTML = '';
+                return;
+            }
+
+            let winners;
+            if (testMode) {
+                winners = season && !season.active
+                    ? await getSeasonWinners(season.id)
+                    : { score: { name: 'Karl-Erik', value: 15273 }, wins: { name: 'Malou', value: 8, total: 12 }, karma: { name: 'Vilde', value: 22192 } };
+            } else {
+                winners = await getSeasonWinners(season.id);
+            }
+            if (!winners) {
+                section.style.display = 'none';
+                container.innerHTML = '';
+                return;
+            }
+            section.style.display = '';
+
+            const scoreName = esc(firstName(winners.score.name));
+            const scoreVal = formatNumber(winners.score.value);
+            const winsName = esc(firstName(winners.wins.name));
+            const winsVal = `${winners.wins.value}/${winners.wins.total}`;
+            const karmaName = esc(firstName(winners.karma.name));
+            const karmaVal = (winners.karma.value > 0 ? '+' : '') + formatNumber(winners.karma.value);
+
+            container.innerHTML = `
+                <div class="mystery" style="width: var(--card-width);">
+                    <div class="mystery-header">
+                        <div class="banner banner--top banner--from-right">
+                            <span class="banner__text">Winners</span>
+                        </div>
+                        <div class="mystery-header__card">
+                            <div class="strip strip--from-right"><span class="strip__text">${esc(gameDisplayName(season))}</span></div>
+                        </div>
+                    </div>
+                    <div class="winners-body">
+                        <div class="winners-category">
+                            <div class="strip strip--from-left"><span class="strip__text">Winner on score</span></div>
+                            <div class="winners-name-row winners-name-row--left">
+                                <div class="banner banner--from-left winners-banner--name">
+                                    <span class="banner__text">${scoreName}</span>
+                                </div>
+                                <span class="winners-value">${scoreVal}</span>
+                            </div>
+                        </div>
+
+                        <div class="winners-category winners-category--right">
+                            <div class="strip strip--from-right"><span class="strip__text">Winner on wins</span></div>
+                            <div class="winners-name-row winners-name-row--right">
+                                <span class="winners-value">${winsVal}</span>
+                                <div class="banner banner--from-right winners-banner--name">
+                                    <span class="banner__text">${winsName}</span>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="winners-category">
+                            <div class="strip strip--from-left"><span class="strip__text">Winner on karma</span></div>
+                            <div class="winners-name-row winners-name-row--left">
+                                <div class="banner banner--from-left winners-banner--name">
+                                    <span class="banner__text">${karmaName}</span>
+                                </div>
+                                <span class="winners-value">${karmaVal}</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            `;
+
+            const seenKey = `wheff_winners_seen_${season?.id || 'test'}`;
+            const alreadySeen = localStorage.getItem(seenKey);
+            if (!alreadySeen || testMode) {
+                document.querySelector('.winners-body')?.classList.add('animating');
+                await waitForVisible(section);
+                await animateWinners();
+                localStorage.setItem(seenKey, '1');
+            } else {
+                startConfettiLoop();
+            }
+        }
+
+        function wait(ms) { return new Promise(r => setTimeout(r, ms)); }
+
+        function waitForVisible(el) {
+            return new Promise(resolve => {
+                const observer = new IntersectionObserver(([entry]) => {
+                    if (entry.isIntersecting) {
+                        observer.disconnect();
+                        resolve();
+                    }
+                }, { threshold: 0.3 });
+                observer.observe(el);
+            });
+        }
+
+        const CONFETTI_COLORS = ['#000000', '#FFFFFF', '#BA0000', '#000540', '#F4BD41', '#00478a', '#933000', '#6a1001'];
+
+        function fireConfetti(bannerEl, fromLeft) {
+            if (typeof confetti !== 'function') return;
+            const rect = bannerEl.getBoundingClientRect();
+            const originX = fromLeft ? 0 : 1;
+            const originY = (rect.top + rect.height / 2) / window.innerHeight;
+            const angle = fromLeft ? 45 : 135;
+            const defaults = { origin: { x: originX, y: originY }, angle, colors: CONFETTI_COLORS, scalar: 1.4, drift: 0, ticks: 400 };
+
+            function fire(particleRatio, opts) {
+                confetti(Object.assign({}, defaults, opts, {
+                    particleCount: Math.floor(200 * particleRatio),
+                }));
+            }
+            fire(0.25, { spread: 26, startVelocity: 55 });
+            fire(0.2, { spread: 60 });
+            fire(0.35, { spread: 100, decay: 0.95, scalar: 1.1 });
+            fire(0.1, { spread: 120, startVelocity: 25, decay: 0.95, scalar: 1.7 });
+            fire(0.1, { spread: 120, startVelocity: 45 });
+        }
+
+        function startConfettiLoop() {
+            if (confettiInterval) clearInterval(confettiInterval);
+            const banners = document.querySelectorAll('.winners-banner--name');
+            if (!banners.length) return;
+            confettiInterval = setInterval(() => {
+                const idx = Math.floor(Math.random() * banners.length);
+                const b = banners[idx];
+                const fromLeft = b.closest('.winners-category')?.classList.contains('winners-category--right') === false;
+                fireConfetti(b, fromLeft);
+            }, 1500);
+        }
+
+        async function animateWinners() {
+            const body = document.querySelector('.winners-body');
+            if (!body) return;
+
+            const categories = body.querySelectorAll('.winners-category');
+            await wait(2500);
+
+            for (const cat of categories) {
+                const fromLeft = !cat.classList.contains('winners-category--right');
+                const strip = cat.querySelector('.strip');
+                const banner = cat.querySelector('.winners-banner--name');
+                const value = cat.querySelector('.winners-value');
+
+                if (strip) { strip.classList.add('revealed'); }
+                await wait(3000);
+
+                if (banner) {
+                    banner.classList.add('revealed');
+                    fireConfetti(banner, fromLeft);
+                }
+                await wait(1000);
+
+                if (value) { value.classList.add('revealed'); }
+                await wait(3500);
+            }
+
+            startConfettiLoop();
         }
 
         // ── Leaderboard ──
