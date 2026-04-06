@@ -396,21 +396,21 @@ async function openSeasonDetail(id) {
                             <label class="form-label">Label</label>
                             <input class="form-input" id="season-rename" value="${esc(season.name)}" maxlength="20">
                         </div>
-                        <button class="btn btn--plain" id="btn-rename-season">Save</button>
                     </div>
                     <div class="form-row" style="margin-top:12px">
                         <div class="form-group">
                             <label class="form-label">Display title</label>
                             <input class="form-input" id="season-display-title" value="${esc(season.display_title || '')}" maxlength="20" placeholder="Uses label if empty">
                         </div>
-                        <button class="btn btn--plain" id="btn-save-display-title">Save</button>
                     </div>
                     <div class="form-row" style="margin-top:12px">
                         <div class="form-group">
                             <label class="form-label">Max players</label>
                             <input class="form-input" type="number" id="season-max-players" value="${season.max_players ?? 15}" min="1" max="100">
                         </div>
-                        <button class="btn btn--plain" id="btn-save-max-players">Save</button>
+                    </div>
+                    <div style="margin-top:16px;text-align:right">
+                        <button class="btn btn--primary" id="btn-save-settings">Save</button>
                     </div>
                 </div>
             </div>
@@ -802,19 +802,15 @@ async function openSeasonDetail(id) {
 
         wireMysteriesTable(id, season);
         seasonDetail.querySelector('#btn-season-back').addEventListener('click', renderSeasons);
-        seasonDetail.querySelector('#btn-rename-season')?.addEventListener('click', async () => {
-            const newName = document.getElementById('season-rename').value.trim();
-            if (newName) { await api.updateSeason(id, { name: newName }); showToast('Game renamed'); openSeasonDetail(id); }
-        });
-        seasonDetail.querySelector('#btn-save-display-title')?.addEventListener('click', async () => {
-            const val = document.getElementById('season-display-title').value.trim();
-            await api.updateSeason(id, { display_title: val || null });
-            showToast('Display title updated');
+        seasonDetail.querySelector('#btn-save-settings')?.addEventListener('click', async () => {
+            const name = document.getElementById('season-rename').value.trim();
+            const displayTitle = document.getElementById('season-display-title').value.trim();
+            const maxPlayers = parseInt(document.getElementById('season-max-players').value, 10);
+            if (!name) return showToast('Label cannot be empty', { type: 'error' });
+            if (maxPlayers < 1) return showToast('Max players must be at least 1', { type: 'error' });
+            await api.updateSeason(id, { name, display_title: displayTitle || null, max_players: maxPlayers });
+            showToast('Settings saved');
             openSeasonDetail(id);
-        });
-        seasonDetail.querySelector('#btn-save-max-players')?.addEventListener('click', async () => {
-            const val = parseInt(document.getElementById('season-max-players').value, 10);
-            if (val > 0) { await api.updateSeason(id, { max_players: val }); showToast('Max players updated'); openSeasonDetail(id); }
         });
         seasonDetail.querySelector('#btn-end-season')?.addEventListener('click', () => {
             showModal('End game?', '<p style="color:#616161">The game will end after the current active mystery is revealed. Scheduled mysteries will be removed.</p>', [
