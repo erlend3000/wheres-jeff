@@ -536,7 +536,7 @@
             startCountdown(mystery, async () => {
                 const lat = (Math.random() * 180) - 90;
                 const lng = (Math.random() * 360) - 180;
-                try { await submitGuess(mystery.id, lat, lng, answer.lat, answer.lng, mystery.published_at, mystery.reveals_at); } catch {}
+                try { await submitGuess(mystery.id, lat, lng, answer.lat, answer.lng, mystery.published_at, mystery.reveals_at); } catch { showToast('Auto-guess failed', { type: 'error' }); }
             });
             initGuessMap();
             if (!guesses.length) startWaitingPlaceholder(mystery.published_at);

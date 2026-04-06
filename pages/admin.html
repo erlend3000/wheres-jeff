@@ -344,7 +344,7 @@ function wireWaitingImageUploads() {
     }
 }
 
-function renderSeasonMysteriesTable(mysteries, season) {
+function renderSeasonMysteriesTable(mysteries) {
     if (!mysteries.length) return '<div class="card__body"><div class="empty-state" style="padding:16px 0">No mysteries in this game. Click "+ Add mystery" above.</div></div>';
     return `<table class="admin-table">
         <thead><tr><th style="width:30px"></th><th>Place</th><th>Status</th><th>Publish</th><th>Reveal</th><th></th></tr></thead>
@@ -495,7 +495,7 @@ async function openSeasonDetail(id) {
                     <button class="btn btn--primary btn--small" id="btn-add-mystery">+ Add mystery</button>
                 </div>
                 <div id="season-mysteries-table">
-                    ${renderSeasonMysteriesTable(mysteries, season)}
+                    ${renderSeasonMysteriesTable(mysteries)}
                 </div>
             </div>`;
 
@@ -530,7 +530,7 @@ async function openSeasonDetail(id) {
                 id: m.id, published_at: m.published_at, reveals_at: m.reveals_at, override: m.override ?? false
             })));
             const updated = await api.getMysteriesBySeason(id);
-            document.getElementById('season-mysteries-table').innerHTML = renderSeasonMysteriesTable(updated, season);
+            document.getElementById('season-mysteries-table').innerHTML = renderSeasonMysteriesTable(updated);
             const titleEl = seasonDetail.querySelector('#season-mysteries-table')?.closest('.card')?.querySelector('.card__title');
             if (titleEl) titleEl.textContent = `Mysteries (${updated.length})`;
             wireMysteriesTable(id, season);
@@ -594,7 +594,7 @@ async function openSeasonDetail(id) {
                         await recalcAndSave();
                     } else {
                         const updated = await api.getMysteriesBySeason(id);
-                        document.getElementById('season-mysteries-table').innerHTML = renderSeasonMysteriesTable(updated, season);
+                        document.getElementById('season-mysteries-table').innerHTML = renderSeasonMysteriesTable(updated);
                         const titleEl = seasonDetail.querySelector('#season-mysteries-table')?.closest('.card')?.querySelector('.card__title');
                         if (titleEl) titleEl.textContent = `Mysteries (${updated.length})`;
                         wireMysteriesTable(id, season);
@@ -664,7 +664,7 @@ async function openSeasonDetail(id) {
                             return;
                         }
                         const fresh = await api.getMysteriesBySeason(seasonId);
-                        document.getElementById('season-mysteries-table').innerHTML = renderSeasonMysteriesTable(fresh, season);
+                        document.getElementById('season-mysteries-table').innerHTML = renderSeasonMysteriesTable(fresh);
                         const titleEl = seasonDetail.querySelector('#season-mysteries-table')?.closest('.card')?.querySelector('.card__title');
                         if (titleEl) titleEl.textContent = `Mysteries (${fresh.length})`;
                         wireMysteriesTable(seasonId, seasonObj);
