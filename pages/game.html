@@ -1151,7 +1151,6 @@
             const alreadySeen = localStorage.getItem(seenKey);
             if (!alreadySeen || testMode) {
                 document.querySelector('.winners-body')?.classList.add('animating');
-                await new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)));
                 await waitForVisible(section);
                 await animateWinners();
                 localStorage.setItem(seenKey, '1');
@@ -1208,6 +1207,11 @@
             }, 1500);
         }
 
+        function revealElement(el, fromLeft) {
+            const anim = fromLeft ? 'winners-slide-left' : 'winners-slide-right';
+            el.style.animation = `${anim} 0.7s cubic-bezier(0.16, 1, 0.3, 1) forwards`;
+        }
+
         async function animateWinners() {
             const body = document.querySelector('.winners-body');
             if (!body) return;
@@ -1221,16 +1225,16 @@
                 const banner = cat.querySelector('.winners-banner--name');
                 const value = cat.querySelector('.winners-value');
 
-                if (strip) { strip.classList.add('revealed'); }
+                if (strip) revealElement(strip, fromLeft);
                 await wait(3000);
 
                 if (banner) {
-                    banner.classList.add('revealed');
+                    revealElement(banner, fromLeft);
                     fireConfetti(banner, fromLeft);
                 }
                 await wait(1000);
 
-                if (value) { value.classList.add('revealed'); }
+                if (value) revealElement(value, fromLeft);
                 await wait(3500);
             }
 
