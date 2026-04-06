@@ -1151,7 +1151,6 @@
             const alreadySeen = localStorage.getItem(seenKey);
             if (!alreadySeen || testMode) {
                 document.querySelector('.winners-body')?.classList.add('animating');
-                await new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)));
                 await waitForVisible(section);
                 await animateWinners();
                 localStorage.setItem(seenKey, '1');
