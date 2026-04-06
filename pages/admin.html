@@ -552,7 +552,9 @@ async function openSeasonDetail(id) {
             if (gapMs >= freqMs) {
                 return showToast('Gap must be shorter than frequency', { type: 'error' });
             }
-            if (new Date(config.starts_at) < new Date()) {
+            const nowFloor = new Date();
+            nowFloor.setSeconds(0, 0);
+            if (new Date(config.starts_at) < nowFloor) {
                 return showToast('Start time cannot be in the past', { type: 'error' });
             }
             await saveScheduleConfig();
@@ -580,7 +582,9 @@ async function openSeasonDetail(id) {
                 item.addEventListener('click', async () => {
                     closeModal();
                     const schedCard = document.getElementById('schedule-card');
-                    if (schedCard?.style.opacity === '0.45') {
+                    const currentMysteries = await api.getMysteriesBySeason(id);
+                    const hasExistingTimings = currentMysteries.some(m => m.published_at);
+                    if (schedCard?.style.opacity === '0.45' && !hasExistingTimings) {
                         schedCard.style.opacity = '';
                         schedCard.style.pointerEvents = '';
                         schedCard.querySelector('.card__header span:last-child')?.remove();
@@ -589,8 +593,7 @@ async function openSeasonDetail(id) {
                     }
                     await api.addMysteryToSeason(id, item.dataset.tid);
                     const config = getScheduleConfig();
-                    if (config.frequency_value && config.gap_value != null) {
-                        await saveScheduleConfig();
+                    if (config.frequency_value && config.gap_value != null && config.starts_at) {
                         await recalcAndSave();
                     } else {
                         const updated = await api.getMysteriesBySeason(id);

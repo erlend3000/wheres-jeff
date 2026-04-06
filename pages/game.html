@@ -950,7 +950,8 @@
             currentMystery = getCurrentMystery(mysteries);
             revealedMysteries = getRevealedMysteries(mysteries);
 
-            if ((season.active || season.ending) && !currentMystery && revealedMysteries.length) {
+            const wasActive = season.active || season.ending;
+            if (wasActive && !currentMystery && revealedMysteries.length) {
                 const ended = await checkSeasonAutoEnd(season.id);
                 if (ended) {
                     season.active = false;
@@ -967,11 +968,8 @@
             populateStats();
             updateBottomPadding();
 
-            if (!season.active) {
-                const winnersEl = document.getElementById('winners-section');
-                if (winnersEl && winnersEl.style.display !== 'none') {
-                    setTimeout(() => winnersEl.scrollIntoView({ behavior: 'smooth' }), 300);
-                }
+            if (wasActive && !season.active && !currentMystery) {
+                showToast('Winners determined');
             }
         }
 
