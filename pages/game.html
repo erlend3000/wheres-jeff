@@ -1225,14 +1225,6 @@
             }, 1500);
         }
 
-        function revealEl(el, fromLeft) {
-            const startX = fromLeft ? '-110vw' : '110vw';
-            el.animate([
-                { transform: `translateX(${startX})`, opacity: 0 },
-                { transform: 'translateX(0)', opacity: 1 }
-            ], { duration: 700, easing: 'cubic-bezier(0.16, 1, 0.3, 1)', fill: 'forwards' });
-        }
-
         async function animateWinners() {
             const body = document.querySelector('.winners-body');
             if (!body) return;
@@ -1247,17 +1239,17 @@
                 const bannerWrap = fromLeft ? anims[1] : anims[2];
                 const valueWrap = fromLeft ? anims[2] : anims[1];
 
-                if (stripWrap) revealEl(stripWrap, fromLeft);
+                if (stripWrap) stripWrap.classList.add('revealed');
                 await wait(3000);
 
                 if (bannerWrap) {
-                    revealEl(bannerWrap, fromLeft);
+                    bannerWrap.classList.add('revealed');
                     const banner = cat.querySelector('.winners-banner--name');
                     if (banner) fireConfetti(banner, fromLeft);
                 }
                 await wait(1000);
 
-                if (valueWrap) revealEl(valueWrap, fromLeft);
+                if (valueWrap) valueWrap.classList.add('revealed');
                 await wait(3500);
             }
 
