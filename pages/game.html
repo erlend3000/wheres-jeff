@@ -362,11 +362,13 @@
 
             const lastDate = new Date(lastVisit);
 
-            if (season && !season.active && !currentMystery) {
-                if (!season.ends_at || new Date(season.ends_at) > lastDate) {
-                    showToast('Winners determined');
-                    return;
+            if (season && !season.active) {
+                if (!currentMystery) {
+                    if (!season.ends_at || new Date(season.ends_at) > lastDate) {
+                        showToast('Winners determined');
+                    }
                 }
+                return;
             }
 
             if (currentMystery && new Date(currentMystery.published_at) > lastDate) {
