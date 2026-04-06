@@ -927,23 +927,24 @@ wheff-card:not(.card-wrapper) {
 }
 
 /* Winners reveal animation */
-.winners-body.animating .winners-category .strip,
-.winners-body.animating .winners-banner--name,
-.winners-body.animating .winners-value {
+.winners-anim {
+    display: contents;
+}
+
+.winners-body.animating .winners-anim {
+    display: block;
     opacity: 0;
     transform: translateX(-110vw);
     transition: transform 0.7s cubic-bezier(0.16, 1, 0.3, 1), opacity 0.5s ease-out;
 }
 
-.winners-body.animating .winners-category--right .strip,
-.winners-body.animating .winners-category--right .winners-banner--name,
-.winners-body.animating .winners-category--right .winners-value {
+.winners-body.animating .winners-anim[data-dir="right"] {
     transform: translateX(110vw);
 }
 
-.winners-body.animating .revealed {
-    opacity: 1 !important;
-    transform: translateX(0) !important;
+.winners-body.animating .winners-anim.revealed {
+    opacity: 1;
+    transform: translateX(0);
 }
 
 /* === Game chooser === */

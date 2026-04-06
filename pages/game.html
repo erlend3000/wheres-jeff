@@ -1115,32 +1115,50 @@
                     </div>
                     <div class="winners-body">
                         <div class="winners-category">
-                            <div class="strip strip--from-left"><span class="strip__text">Winner on score</span></div>
+                            <div class="winners-anim" data-dir="left">
+                                <div class="strip strip--from-left"><span class="strip__text">Winner on score</span></div>
+                            </div>
                             <div class="winners-name-row winners-name-row--left">
-                                <div class="banner banner--from-left winners-banner--name">
-                                    <span class="banner__text">${scoreName}</span>
+                                <div class="winners-anim" data-dir="left">
+                                    <div class="banner banner--from-left winners-banner--name">
+                                        <span class="banner__text">${scoreName}</span>
+                                    </div>
                                 </div>
-                                <span class="winners-value">${scoreVal}</span>
+                                <div class="winners-anim" data-dir="left">
+                                    <span class="winners-value">${scoreVal}</span>
+                                </div>
                             </div>
                         </div>
 
                         <div class="winners-category winners-category--right">
-                            <div class="strip strip--from-right"><span class="strip__text">Winner on wins</span></div>
+                            <div class="winners-anim" data-dir="right">
+                                <div class="strip strip--from-right"><span class="strip__text">Winner on wins</span></div>
+                            </div>
                             <div class="winners-name-row winners-name-row--right">
-                                <span class="winners-value">${winsVal}</span>
-                                <div class="banner banner--from-right winners-banner--name">
-                                    <span class="banner__text">${winsName}</span>
+                                <div class="winners-anim" data-dir="right">
+                                    <span class="winners-value">${winsVal}</span>
+                                </div>
+                                <div class="winners-anim" data-dir="right">
+                                    <div class="banner banner--from-right winners-banner--name">
+                                        <span class="banner__text">${winsName}</span>
+                                    </div>
                                 </div>
                             </div>
                         </div>
 
                         <div class="winners-category">
-                            <div class="strip strip--from-left"><span class="strip__text">Winner on karma</span></div>
+                            <div class="winners-anim" data-dir="left">
+                                <div class="strip strip--from-left"><span class="strip__text">Winner on karma</span></div>
+                            </div>
                             <div class="winners-name-row winners-name-row--left">
-                                <div class="banner banner--from-left winners-banner--name">
-                                    <span class="banner__text">${karmaName}</span>
+                                <div class="winners-anim" data-dir="left">
+                                    <div class="banner banner--from-left winners-banner--name">
+                                        <span class="banner__text">${karmaName}</span>
+                                    </div>
                                 </div>
-                                <span class="winners-value">${karmaVal}</span>
+                                <div class="winners-anim" data-dir="left">
+                                    <span class="winners-value">${karmaVal}</span>
+                                </div>
                             </div>
                         </div>
                     </div>
@@ -1207,59 +1225,31 @@
             }, 1500);
         }
 
-        function dbg(msg) {
-            let box = document.getElementById('dbg-box');
-            if (!box) {
-                box = document.createElement('div');
-                box.id = 'dbg-box';
-                Object.assign(box.style, {
-                    position: 'fixed', bottom: '0', left: '0', right: '0',
-                    maxHeight: '40vh', overflow: 'auto', background: 'rgba(0,0,0,0.9)',
-                    color: '#0f0', fontSize: '11px', fontFamily: 'monospace',
-                    padding: '8px', zIndex: '99999', whiteSpace: 'pre-wrap'
-                });
-                document.body.appendChild(box);
-            }
-            box.textContent += msg + '\n';
-            box.scrollTop = box.scrollHeight;
-        }
-
         async function animateWinners() {
             const body = document.querySelector('.winners-body');
             if (!body) return;
 
             const categories = body.querySelectorAll('.winners-category');
-            dbg(`categories: ${categories.length}, .animating: ${body.classList.contains('animating')}`);
             await wait(2500);
 
             for (const cat of categories) {
                 const fromLeft = !cat.classList.contains('winners-category--right');
-                const strip = cat.querySelector('.strip');
-                const banner = cat.querySelector('.winners-banner--name');
-                const value = cat.querySelector('.winners-value');
+                const anims = cat.querySelectorAll('.winners-anim');
+                const stripWrap = anims[0];
+                const bannerWrap = fromLeft ? anims[1] : anims[2];
+                const valueWrap = fromLeft ? anims[2] : anims[1];
 
-                if (strip) {
-                    const cs = getComputedStyle(strip);
-                    dbg(`BEFORE strip (left=${fromLeft}): transform=${cs.transform} opacity=${cs.opacity} w=${cs.width} transition=${cs.transition}`);
-                    strip.classList.add('revealed');
-                    const cs2 = getComputedStyle(strip);
-                    dbg(`AFTER strip: transform=${cs2.transform} opacity=${cs2.opacity}`);
-                }
+                if (stripWrap) stripWrap.classList.add('revealed');
                 await wait(3000);
 
-                if (banner) {
-                    const cs = getComputedStyle(banner);
-                    dbg(`BEFORE banner (left=${fromLeft}): transform=${cs.transform} opacity=${cs.opacity} w=${cs.width}`);
-                    banner.classList.add('revealed');
-                    fireConfetti(banner, fromLeft);
+                if (bannerWrap) {
+                    bannerWrap.classList.add('revealed');
+                    const banner = cat.querySelector('.winners-banner--name');
+                    if (banner) fireConfetti(banner, fromLeft);
                 }
                 await wait(1000);
 
-                if (value) {
-                    const cs = getComputedStyle(value);
-                    dbg(`BEFORE value (left=${fromLeft}): transform=${cs.transform} opacity=${cs.opacity} w=${cs.width}`);
-                    value.classList.add('revealed');
-                }
+                if (valueWrap) valueWrap.classList.add('revealed');
                 await wait(3500);
             }
 
