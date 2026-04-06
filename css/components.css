@@ -309,6 +309,10 @@ wheff-card:not(.card-wrapper) {
     color: var(--color-placeholder);
 }
 
+.field--display .field__input::placeholder {
+    color: var(--color-text-inverse);
+}
+
 /* Display variant — black box, white text, larger, read-only */
 .field--display {
     height: calc(var(--font-size-title) * 0.86);
