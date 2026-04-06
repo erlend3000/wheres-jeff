@@ -1212,6 +1212,8 @@
             if (!body) return;
 
             const categories = body.querySelectorAll('.winners-category');
+            console.log('[WINNERS] animateWinners started, categories:', categories.length);
+            console.log('[WINNERS] body has .animating:', body.classList.contains('animating'));
             await wait(2500);
 
             for (const cat of categories) {
@@ -1220,16 +1222,48 @@
                 const banner = cat.querySelector('.winners-banner--name');
                 const value = cat.querySelector('.winners-value');
 
-                if (strip) { strip.classList.add('revealed'); }
+                if (strip) {
+                    const cs = getComputedStyle(strip);
+                    console.log(`[WINNERS] BEFORE reveal strip (fromLeft=${fromLeft}):`, {
+                        transform: cs.transform,
+                        opacity: cs.opacity,
+                        transition: cs.transition,
+                        display: cs.display,
+                        width: cs.width,
+                        classes: strip.className
+                    });
+                    strip.classList.add('revealed');
+                    const cs2 = getComputedStyle(strip);
+                    console.log(`[WINNERS] AFTER reveal strip:`, {
+                        transform: cs2.transform,
+                        opacity: cs2.opacity
+                    });
+                }
                 await wait(3000);
 
                 if (banner) {
+                    const cs = getComputedStyle(banner);
+                    console.log(`[WINNERS] BEFORE reveal banner (fromLeft=${fromLeft}):`, {
+                        transform: cs.transform,
+                        opacity: cs.opacity,
+                        transition: cs.transition,
+                        width: cs.width,
+                        classes: banner.className
+                    });
                     banner.classList.add('revealed');
                     fireConfetti(banner, fromLeft);
                 }
                 await wait(1000);
 
-                if (value) { value.classList.add('revealed'); }
+                if (value) {
+                    const cs = getComputedStyle(value);
+                    console.log(`[WINNERS] BEFORE reveal value (fromLeft=${fromLeft}):`, {
+                        transform: cs.transform,
+                        opacity: cs.opacity,
+                        width: cs.width
+                    });
+                    value.classList.add('revealed');
+                }
                 await wait(3500);
             }
 
