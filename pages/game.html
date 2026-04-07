@@ -223,6 +223,9 @@
         let waitingInterval = null;
         let sabMarker = null;
         let sabMode = 'distance';
+        let sabResetTimer = null;
+        let pinLabelMarker = null;
+        let pinLabelTimer = null;
         let waitingImages = {};
         const imageCache = new Map();
 
@@ -587,7 +590,10 @@
                     guessMarker.setLatLng(e.latlng);
                 } else {
                     guessMarker = L.marker(e.latlng, { icon: guessIcon, draggable: true }).addTo(guessMap);
+                    guessMarker.on('dragend', () => showPinLabel(guessMap, guessMarker.getLatLng()));
+                    guessMarker.on('click', () => showPinLabel(guessMap, guessMarker.getLatLng()));
                 }
+                showPinLabel(guessMap, e.latlng);
                 const submitBtn = document.getElementById('submit-btn');
                 if (submitBtn) {
                     submitBtn.classList.remove('banner--disabled');
@@ -686,8 +692,12 @@
             const sPinPx = Math.round(px(PIN_VW));
             const sPinH = sPinPx / 2;
             const initial = esc(firstName(profile.name).charAt(0).toUpperCase());
-            const icon = L.divIcon({ className: '', html: `<div class="world-pin" style="background:#000;">${initial}</div>`, iconSize: [sPinPx, sPinPx], iconAnchor: [sPinH, sPinH] });
-            L.marker([lat, lng], { icon, interactive: false }).addTo(guessMap);
+            const icon = L.divIcon({ className: '', html: `<div class="world-pin" style="background:#000;cursor:pointer;">${initial}</div>`, iconSize: [sPinPx, sPinPx], iconAnchor: [sPinH, sPinH] });
+            const submittedPin = L.marker([lat, lng], { icon }).addTo(guessMap);
+            submittedPin.on('click', (e) => {
+                L.DomEvent.stopPropagation(e);
+                showPinLabel(guessMap, L.latLng(lat, lng));
+            });
 
             addMapTint(mapEl);
             setTimeout(() => { guessMap.invalidateSize(); enforceMinZoom(guessMap); }, 200);
@@ -786,6 +796,7 @@
             addMapTint(mapEl);
 
             resultMap.on('click', () => {
+                if (sabResetTimer) { clearTimeout(sabResetTimer); sabResetTimer = null; }
                 if (sabMode !== 'distance' && lastResultData) resetSab(lastResultData.entry);
             });
 
@@ -823,6 +834,39 @@
             setSabContent(formatDistance(entry.distance_m));
         }
 
+        function removePinLabel() {
+            if (pinLabelTimer) { clearTimeout(pinLabelTimer); pinLabelTimer = null; }
+            if (pinLabelMarker) { pinLabelMarker.remove(); pinLabelMarker = null; }
+        }
+
+        async function showPinLabel(map, latlng) {
+            removePinLabel();
+            const pinPx = Math.round(px(PIN_VW));
+            const offsetY = pinPx / 2 + Math.round(px(3));
+            pinLabelMarker = L.marker(latlng, {
+                icon: L.divIcon({
+                    className: 'mystery__distance-wrapper',
+                    html: `<div class="mystery__distance-label" style="min-width:14vw;"><span style="visibility:hidden;font-family:var(--font-family);font-weight:700;font-size:calc(var(--results-font-size)*0.975);line-height:1.45;">&nbsp;</span><span class="loader loader--sab" style="position:absolute;"></span></div>`,
+                    iconSize: [0, 0],
+                    iconAnchor: [0, offsetY]
+                }),
+                zIndexOffset: 2000,
+                interactive: false
+            }).addTo(map);
+
+            const location = await reverseGeocode(latlng.lat, latlng.lng);
+            if (!pinLabelMarker) return;
+            const label = pinLabelMarker.getElement()?.querySelector('.mystery__distance-label');
+            if (!label) return;
+            const text = formatLocationLabel(location);
+            label.style.minWidth = '';
+            label.style.paddingTop = '';
+            label.style.paddingBottom = '';
+            label.innerHTML = `<span>${esc(text)}</span>`;
+
+            pinLabelTimer = setTimeout(removePinLabel, 2000);
+        }
+
         function drawResultPins(answer, entry) {
             if (!resultMap) return;
             lastResultData = { answer, entry };
@@ -840,9 +884,11 @@
 
             answerMarker.on('click', (e) => {
                 L.DomEvent.stopPropagation(e);
+                if (sabResetTimer) clearTimeout(sabResetTimer);
                 const loc = formatLocationLabel(answer.location);
                 sabMode = 'answer';
                 setSabContent(loc);
+                sabResetTimer = setTimeout(() => resetSab(entry), 2000);
             });
 
             const guessLL = [entry?.guess?.lat, entry?.guess?.lng];
@@ -862,6 +908,7 @@
 
             guessMarkerResult.on('click', async (e) => {
                 L.DomEvent.stopPropagation(e);
+                if (sabResetTimer) clearTimeout(sabResetTimer);
                 const guess = entry.guess;
                 if (guess && (!guess.location || !guess.location.length) && guess.lat != null) {
                     sabMode = 'guess';
@@ -870,6 +917,7 @@
                 }
                 sabMode = 'guess';
                 setSabContent(formatLocationLabel(guess?.location));
+                sabResetTimer = setTimeout(() => resetSab(entry), 2000);
             });
 
             const w = px(LINE_WEIGHT_VW);
@@ -892,6 +940,7 @@
 
             sabMarker.on('click', (e) => {
                 L.DomEvent.stopPropagation(e);
+                if (sabResetTimer) { clearTimeout(sabResetTimer); sabResetTimer = null; }
                 if (sabMode !== 'distance') resetSab(entry);
             });
 
@@ -940,6 +989,8 @@
             guessMarker = null;
             sabMarker = null;
             sabMode = 'distance';
+            if (sabResetTimer) { clearTimeout(sabResetTimer); sabResetTimer = null; }
+            removePinLabel();
             lastResultFit = null;
             lastResultData = null;
         }

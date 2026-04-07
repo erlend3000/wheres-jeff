@@ -28,7 +28,7 @@
         <div class="login-step active" id="step-welcome">
             <wheff-card>
                 <wheff-banner position="top" from="left">Welcome!</wheff-banner>
-                <wheff-field label="Email" type="email" placeholder="jeff@jeffworld.com"></wheff-field>
+                <wheff-field label="Email" type="email" placeholder="your@email.com"></wheff-field>
                 <wheff-banner position="bottom" from="right" action="next">Go!</wheff-banner>
             </wheff-card>
         </div>
@@ -38,7 +38,7 @@
             <wheff-card aspect="2.31">
                 <wheff-banner position="top" from="left">Create Account</wheff-banner>
                 <wheff-field label="Name" placeholder="Your name" maxlength="40"></wheff-field>
-                <wheff-field label="Email" type="email" placeholder="jeff@jeffworld.com"></wheff-field>
+                <wheff-field label="Email" type="email" placeholder="your@email.com"></wheff-field>
                 <wheff-field label="Password" type="password" placeholder="••••••••"></wheff-field>
                 <wheff-banner position="bottom" from="left" size="small" action="back" variant="secondary">Back</wheff-banner>
                 <wheff-banner position="bottom" from="right" action="next">Go!</wheff-banner>
@@ -49,7 +49,7 @@
         <div class="login-step" id="step-login">
             <wheff-card aspect="2.66">
                 <wheff-banner position="top" from="left">Log In</wheff-banner>
-                <wheff-field label="Email" type="email" placeholder="jeff@jeffworld.com"></wheff-field>
+                <wheff-field label="Email" type="email" placeholder="your@email.com"></wheff-field>
                 <wheff-field label="Password" type="password" placeholder="••••••••"></wheff-field>
                 <wheff-banner position="bottom" from="left" size="small" action="back" variant="secondary">Back</wheff-banner>
                 <wheff-banner position="bottom" from="right" action="next">Go!</wheff-banner>
@@ -69,7 +69,7 @@
     </script>
 
     <script type="module">
-        import { signUp, signIn, redirectIfLoggedIn, validateName } from '../lib/auth.js';
+        import { signUp, signIn, redirectIfLoggedIn, validateName, friendlyError } from '../lib/auth.js';
         import { supabase } from '../lib/supabase.js';
         import { showModal, hideModal } from '../lib/modal.js';
         import { showToast } from '../lib/toast.js';
@@ -116,7 +116,6 @@
 
         function isFieldValid(input) {
             if (input.type === 'email') return input.value.includes('@') && input.value.includes('.');
-            if (input.name === 'name') return !validateName(input.value);
             return input.value.trim().length > 0;
         }
 
@@ -263,13 +262,14 @@
                     }, 3000);
                 } catch (err) {
                     setBannerLoading(goBtn, false);
-                    if (err.message.includes('already registered')) {
-                        showToast('Email already registered');
+                    const msg = friendlyError(err);
+                    if (/already registered/i.test(err.message)) {
+                        showToast(msg);
                         showStep('login');
                         const emailField = steps.login.querySelector('wheff-field[label="Email"]');
                         if (emailField) emailField.value = data.email;
                     } else {
-                        showToast(err.message || 'Sign up failed', { type: 'error' });
+                        showToast(msg, { type: 'error' });
                     }
                 }
                 return;
@@ -284,7 +284,7 @@
                     window.location.href = '/pages/game.html';
                 } catch (err) {
                     setBannerLoading(goBtn, false);
-                    showToast(err.message || 'Login failed', { type: 'error' });
+                    showToast(friendlyError(err), { type: 'error' });
                 }
                 return;
             }
