@@ -591,7 +591,10 @@
                 } else {
                     guessMarker = L.marker(e.latlng, { icon: guessIcon, draggable: true }).addTo(guessMap);
                     guessMarker.on('dragend', () => showPinLabel(guessMap, guessMarker.getLatLng()));
-                    guessMarker.on('click', () => showPinLabel(guessMap, guessMarker.getLatLng()));
+                    guessMarker.on('click', () => {
+                        guessMap.panTo(guessMarker.getLatLng());
+                        showPinLabel(guessMap, guessMarker.getLatLng());
+                    });
                 }
                 showPinLabel(guessMap, e.latlng);
                 const submitBtn = document.getElementById('submit-btn');
@@ -602,6 +605,7 @@
             });
 
             addMapTint(mapEl);
+            addZoomControls(guessMap, mapEl);
             setTimeout(() => { guessMap.invalidateSize(); enforceMinZoom(guessMap); }, 200);
         }
 
@@ -699,10 +703,12 @@
             const submittedPin = L.marker([lat, lng], { icon }).addTo(guessMap);
             submittedPin.on('click', (e) => {
                 L.DomEvent.stopPropagation(e);
+                guessMap.panTo(L.latLng(lat, lng));
                 showPinLabel(guessMap, L.latLng(lat, lng));
             });
 
             addMapTint(mapEl);
+            addZoomControls(guessMap, mapEl);
             setTimeout(() => { guessMap.invalidateSize(); enforceMinZoom(guessMap); }, 200);
         }
 
@@ -804,6 +810,7 @@
             addTileLayer(resultMap);
 
             addMapTint(mapEl);
+            addZoomControls(resultMap, mapEl);
 
             resultMap.on('click', () => {
                 if (sabResetTimer) { clearTimeout(sabResetTimer); sabResetTimer = null; }
@@ -849,8 +856,11 @@
             if (pinLabelMarker) { pinLabelMarker.remove(); pinLabelMarker = null; }
         }
 
+        let pinLabelRequestId = 0;
+
         async function showPinLabel(map, latlng) {
             removePinLabel();
+            const requestId = ++pinLabelRequestId;
             const pinPx = Math.round(px(PIN_VW));
             const offsetY = pinPx / 2 + Math.round(px(3));
             pinLabelMarker = L.marker(latlng, {
@@ -865,7 +875,7 @@
             }).addTo(map);
 
             const location = await reverseGeocode(latlng.lat, latlng.lng);
-            if (!pinLabelMarker) return;
+            if (!pinLabelMarker || requestId !== pinLabelRequestId) return;
             const label = pinLabelMarker.getElement()?.querySelector('.mystery__distance-label');
             if (!label) return;
             const text = formatLocationLabel(location);
@@ -1394,6 +1404,20 @@
             const tint = document.createElement('div');
             tint.className = 'map-tint';
             pane.appendChild(tint);
+        }
+
+        function addZoomControls(map, mapEl) {
+            const ctrl = document.createElement('div');
+            ctrl.className = 'map-zoom';
+            ctrl.innerHTML = `<button class="map-zoom__btn" data-dir="in">+</button><button class="map-zoom__btn" data-dir="out">&minus;</button>`;
+            mapEl.appendChild(ctrl);
+            ctrl.querySelectorAll('.map-zoom__btn').forEach(btn => {
+                btn.addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    if (btn.dataset.dir === 'in') map.zoomIn();
+                    else map.zoomOut();
+                });
+            });
         }
 
         // ── HTML Helpers ──
