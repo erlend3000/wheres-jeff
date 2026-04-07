@@ -604,6 +604,10 @@
                 }
             });
 
+            guessMap.on('zoomend', () => {
+                if (guessMarker) guessMap.panTo(guessMarker.getLatLng());
+            });
+
             addMapTint(mapEl);
             addZoomControls(guessMap, mapEl);
             setTimeout(() => { guessMap.invalidateSize(); enforceMinZoom(guessMap); }, 200);
@@ -705,6 +709,10 @@
                 L.DomEvent.stopPropagation(e);
                 guessMap.panTo(L.latLng(lat, lng));
                 showPinLabel(guessMap, L.latLng(lat, lng));
+            });
+
+            guessMap.on('zoomend', () => {
+                guessMap.panTo(L.latLng(lat, lng));
             });
 
             addMapTint(mapEl);
@@ -1411,9 +1419,10 @@
             ctrl.className = 'map-zoom';
             ctrl.innerHTML = `<button class="map-zoom__btn" data-dir="in">+</button><button class="map-zoom__btn" data-dir="out">&minus;</button>`;
             mapEl.appendChild(ctrl);
+            L.DomEvent.disableClickPropagation(ctrl);
+            L.DomEvent.disableScrollPropagation(ctrl);
             ctrl.querySelectorAll('.map-zoom__btn').forEach(btn => {
-                btn.addEventListener('click', (e) => {
-                    e.stopPropagation();
+                btn.addEventListener('click', () => {
                     if (btn.dataset.dir === 'in') map.zoomIn();
                     else map.zoomOut();
                 });
