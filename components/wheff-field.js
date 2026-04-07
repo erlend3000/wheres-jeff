@@ -28,6 +28,7 @@ class WheffField extends HTMLElement {
         const placeholder = this.getAttribute('placeholder') || '';
         const name = this.getAttribute('name') || label.toLowerCase();
         const variant = this.getAttribute('variant');
+        const maxlength = this.getAttribute('maxlength');
         const isPassword = type === 'password';
 
         this.classList.add('field');
@@ -38,11 +39,12 @@ class WheffField extends HTMLElement {
             : '';
 
         const readonlyAttr = variant === 'display' ? 'readonly tabindex="-1"' : '';
+        const maxlengthAttr = maxlength ? `maxlength="${maxlength}"` : '';
 
         this.innerHTML = `
             <span class="field__label">${label}</span>
             <div class="field__input-wrapper">
-                <input class="field__input" type="${type}" name="${name}" placeholder="${placeholder}" ${readonlyAttr}>
+                <input class="field__input" type="${type}" name="${name}" placeholder="${placeholder}" ${readonlyAttr} ${maxlengthAttr}>
                 ${eyeBtn}
             </div>
         `;
