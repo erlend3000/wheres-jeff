@@ -141,6 +141,7 @@
         let lastResultData = null;
         let cachedLeaderboard = null;
         let confettiInterval = null;
+        let pendingRevealConfetti = false;
 
         function addTileLayer(map) {
             L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
@@ -238,6 +239,7 @@
         let sabMarker = null;
         let sabMode = 'distance';
         let sabResetTimer = null;
+        let revealRefreshTimer = null;
         let pinLabelMarker = null;
         let pinLabelTimer = null;
         let waitingImages = {};
@@ -425,7 +427,7 @@
 
             await buildNavItems();
             await renderMysteryAtPosition();
-            renderWinners();
+            await renderWinners();
             await renderLeaderboard();
             await renderPastMysteries();
             populateStats();
@@ -445,23 +447,37 @@
                 try {
                     const now = new Date();
                     let stateChanged = false;
+                    let newRevealDetected = false;
+                    let newMysteryDetected = false;
 
                     const newRevealed = mysteries.filter(m => m.reveals_at && new Date(m.reveals_at) <= now).length;
-                    if (newRevealed !== revealedMysteries.length) stateChanged = true;
+                    if (newRevealed > revealedMysteries.length) {
+                        stateChanged = true;
+                        newRevealDetected = true;
+                    }
 
                     if (!stateChanged && !currentMystery && (season.active || season.ending)) {
                         try {
                             const fresh = await getSeasonMysteries(season.id);
-                            if (fresh.length !== mysteries.length) stateChanged = true;
+                            if (fresh.length !== mysteries.length) { stateChanged = true; newMysteryDetected = true; }
                             if (!stateChanged) {
                                 const freshCurrent = getCurrentMystery(fresh);
-                                if (freshCurrent) stateChanged = true;
+                                if (freshCurrent) { stateChanged = true; newMysteryDetected = true; }
                             }
                         } catch {}
                     }
 
                     if (stateChanged) {
-                        await reloadMysteries({ preserveNav: true });
+                        if (newRevealDetected) {
+                            pendingRevealConfetti = true;
+                            showToast('Mystery revealed');
+                            await reloadMysteries({ navigateTo: 'latest', scrollToMystery: true });
+                        } else if (newMysteryDetected) {
+                            showToast('New mystery available');
+                            await reloadMysteries({ scrollToMystery: true });
+                        } else {
+                            await reloadMysteries({ preserveNav: true });
+                        }
                     }
                 } finally {
                     bgPolling = false;
@@ -494,10 +510,13 @@
             const newlyRevealed = revealedMysteries.filter(m =>
                 new Date(m.reveals_at) > lastDate
             );
-            if (newlyRevealed.length === 1) {
-                setTimeout(() => showToast('Mystery revealed'), 1500);
-            } else if (newlyRevealed.length > 1) {
-                setTimeout(() => showToast(`${newlyRevealed.length} mysteries revealed`), 1500);
+            if (newlyRevealed.length >= 1) {
+                pendingRevealConfetti = true;
+                if (newlyRevealed.length === 1) {
+                    setTimeout(() => showToast('Mystery revealed'), 1500);
+                } else {
+                    setTimeout(() => showToast(`${newlyRevealed.length} mysteries revealed`), 1500);
+                }
             }
         }
 
@@ -925,16 +944,17 @@
                 curveViewX = pp.x - (w / 2 - mx) / scale;
             }
 
-            const fieldsH = h * 0.12;
+            const fieldsH = h * 0.14;
             const cy = h * CURVE_Y_CENTER;
             if (sy > cy - fieldsH && sy < cy + fieldsH) {
-                const shift = (fieldsH + h * 0.05) / scale;
-                if (sy < cy) {
-                    curveViewY += shift;
-                } else if (sy > cy) {
+                const shift = (fieldsH + h * 0.06) / scale;
+                const nearCenter = Math.abs(sy - cy) < 2;
+                if (nearCenter) {
+                    curveViewY += (pp.y > 0 ? -1 : 1) * shift;
+                } else if (sy < cy) {
                     curveViewY -= shift;
                 } else {
-                    curveViewY += (Math.random() > 0.5 ? 1 : -1) * shift;
+                    curveViewY += shift;
                 }
             }
             drawCurve();
@@ -1902,6 +1922,7 @@
             const submitBanner = document.getElementById('submit-btn');
             if (submitBanner) {
                 submitBanner.addEventListener('click', async () => {
+                    if (submitBanner.classList.contains('banner--disabled')) return;
                     if (isAdminViewer) {
                         showToast('Admins cannot participate', { type: 'error' });
                         return;
@@ -1969,7 +1990,6 @@
                     saveGeoPin(pos);
                 });
                 guessMarker.on('click', () => {
-                    guessMap.panTo(guessMarker.getLatLng());
                     showPinLabel(guessMap, guessMarker.getLatLng());
                 });
             }
@@ -2032,9 +2052,9 @@
 
             if (nextStart) {
                 fixCountdownStripWidth();
-                countdownInterval = setInterval(() => {
+                countdownInterval = setInterval(async () => {
                     const el = document.getElementById('countdown');
-                    if (!el) return;
+                    if (!el) { clearInterval(countdownInterval); countdownInterval = null; return; }
                     const text = formatCountdownIn(nextStart);
                     if (text) {
                         const prev = el.textContent;
@@ -2042,8 +2062,9 @@
                         if (text.length !== prev.length) fixCountdownStripWidth();
                     } else {
                         clearInterval(countdownInterval);
+                        countdownInterval = null;
                         showToast('New mystery available');
-                        reloadMysteries();
+                        await reloadMysteries({ scrollToMystery: true });
                     }
                 }, 1000);
             }
@@ -2110,7 +2131,6 @@
             const submittedPin = L.marker([lat, lng], { icon }).addTo(guessMap);
             submittedPin.on('click', (e) => {
                 L.DomEvent.stopPropagation(e);
-                guessMap.panTo(L.latLng(lat, lng));
                 const guessLoc = userGuess.guess?.location;
                 if (guessLoc && guessLoc.length) {
                     showPinLabelText(guessMap, L.latLng(lat, lng), formatLocationLabel(guessLoc));
@@ -2209,20 +2229,68 @@
                 initResultMap(answer, selectedEntry);
             }
 
-            document.querySelectorAll('.mystery__results-row').forEach(row => {
-                row.addEventListener('click', () => {
-                    const entry = leaderboard.find(e => e.user_id === row.dataset.user);
-                    if (!entry) return;
-                    selectedEntry = entry;
-                    if (isTime) {
-                        updateTimeResultView(answer, entry);
-                    } else {
-                        updateResultView(answer, entry);
-                    }
-                    const label = document.getElementById('result-label');
-                    if (label) label.scrollIntoView({ behavior: 'smooth' });
+            if (pendingRevealConfetti && type === 'latest') {
+                pendingRevealConfetti = false;
+                setTimeout(fireRevealConfetti, 600);
+            }
+
+            function bindResultRows() {
+                document.querySelectorAll('.mystery__results-row').forEach(row => {
+                    row.addEventListener('click', () => {
+                        const entry = leaderboard.find(e => e.user_id === row.dataset.user);
+                        if (!entry) return;
+                        selectedEntry = entry;
+                        if (isTime) {
+                            updateTimeResultView(answer, entry);
+                        } else {
+                            updateResultView(answer, entry);
+                        }
+                        const label = document.getElementById('result-label');
+                        if (label) label.scrollIntoView({ behavior: 'smooth' });
+                    });
                 });
-            });
+            }
+            bindResultRows();
+
+            if (type === 'latest') {
+                let refreshCount = 0;
+                function scheduleRefresh() {
+                    if (refreshCount >= 4) return;
+                    revealRefreshTimer = setTimeout(async () => {
+                        revealRefreshTimer = null;
+                        const table = document.getElementById('results-table');
+                        if (!table) return;
+                        const fresh = await getMysteryLeaderboard(mystery.id, mystery.published_at, mystery.reveals_at);
+                        if (fresh.length <= leaderboard.length) { refreshCount++; scheduleRefresh(); return; }
+                        leaderboard.length = 0;
+                        leaderboard.push(...fresh);
+                        const newUserEntry = isAdminViewer ? null : leaderboard.find(e => e.user_id === userId);
+                        if (!selectedEntry || (!newUserEntry && !isAdminViewer)) {
+                            selectedEntry = newUserEntry || leaderboard[0] || null;
+                        }
+                        const headerHTML = table.querySelector('.results-header')?.outerHTML || '';
+                        table.innerHTML = headerHTML + leaderboard.map(e => resultRow(e, selectedEntry, isTime, isTime ? answer : null)).join('');
+                        bindResultRows();
+                        const labelEl = document.getElementById('result-label');
+                        if (labelEl && selectedEntry) {
+                            labelEl.textContent = (!isAdminViewer && selectedEntry.user_id === userId) ? 'YOUR RESULT' : `${firstName(selectedEntry.name)}'S RESULT`;
+                        }
+                        const scoreEl = document.getElementById('score-banner-text');
+                        if (scoreEl && selectedEntry) scoreEl.textContent = `SCORE: ${formatNumber(selectedEntry.score)}`;
+                        if (selectedEntry && !isTime && answer?.lat != null) drawResultPins(answer, selectedEntry);
+                        if (selectedEntry && isTime && selectedEntry.guess?.year != null) {
+                            curveResultEntry = selectedEntry.guess;
+                            setCurvePinFromTime(selectedEntry.guess);
+                            fitCurveToBothPins();
+                            showCurveDistanceFields();
+                            drawCurve();
+                        }
+                        refreshCount++;
+                        scheduleRefresh();
+                    }, 10000);
+                }
+                scheduleRefresh();
+            }
         }
 
         function updateTimeResultView(answer, entry) {
@@ -2267,7 +2335,7 @@
             fixCountdownStripWidth();
             countdownInterval = setInterval(async () => {
                 const el = document.getElementById('countdown');
-                if (!el) return;
+                if (!el) { clearInterval(countdownInterval); countdownInterval = null; return; }
                 const text = formatCountdown(mystery.reveals_at);
                 if (text) {
                     const prev = el.textContent;
@@ -2275,9 +2343,11 @@
                     if (text.length !== prev.length) fixCountdownStripWidth();
                 } else {
                     clearInterval(countdownInterval);
+                    countdownInterval = null;
                     if (onExpire) await onExpire();
+                    pendingRevealConfetti = true;
                     showToast('Mystery revealed');
-                    reloadMysteries();
+                    await reloadMysteries({ navigateTo: 'latest', scrollToMystery: true });
                 }
             }, 1000);
         }
@@ -2330,6 +2400,7 @@
 
         function resetSab(entry) {
             sabMode = 'distance';
+            if (!entry) return;
             setSabContent(formatDistance(entry.distance_m));
         }
 
@@ -2339,6 +2410,38 @@
         }
 
         let pinLabelRequestId = 0;
+
+        function autoPanForLabel(map, latlng, pinPx) {
+            requestAnimationFrame(() => {
+                const labelEl = pinLabelMarker?.getElement()?.querySelector('.mystery__distance-label');
+                if (!labelEl) return;
+                const labelRect = labelEl.getBoundingClientRect();
+                const mapContainer = map.getContainer();
+                const mapRect = mapContainer.getBoundingClientRect();
+                const pad = 60;
+                let panX = 0, panY = 0;
+                if (labelRect.right + pad > mapRect.right) panX = labelRect.right + pad - mapRect.right;
+                else if (labelRect.left - pad < mapRect.left) panX = labelRect.left - pad - mapRect.left;
+                const mapWrapper = mapContainer.parentElement;
+                let safeTop = mapRect.top + pad;
+                let safeBot = mapRect.bottom - pad;
+                if (mapWrapper) {
+                    for (const strip of mapWrapper.querySelectorAll('.edge-wrapper--strip, .mystery-header')) {
+                        const sr = strip.getBoundingClientRect();
+                        if (sr.bottom <= mapRect.top || sr.top >= mapRect.bottom) continue;
+                        if (sr.top < mapRect.top + mapRect.height * 0.4)
+                            safeTop = Math.max(safeTop, sr.bottom + pad);
+                        else
+                            safeBot = Math.min(safeBot, sr.top - pad);
+                    }
+                }
+                if (labelRect.top < safeTop) panY = labelRect.top - safeTop;
+                const pinPoint = map.latLngToContainerPoint(latlng);
+                const pinBottomAbs = mapRect.top + pinPoint.y + pinPx / 2;
+                if (panY === 0 && pinBottomAbs > safeBot) panY = pinBottomAbs - safeBot;
+                if (panX !== 0 || panY !== 0) map.panBy([panX, panY], { animate: true, duration: 0.15 });
+            });
+        }
 
         async function showPinLabel(map, latlng) {
             removePinLabel();
@@ -2366,6 +2469,7 @@
             label.style.paddingBottom = '';
             label.innerHTML = `<span>${esc(text)}</span>`;
 
+            autoPanForLabel(map, latlng, pinPx);
             pinLabelTimer = setTimeout(removePinLabel, 2000);
         }
 
@@ -2384,28 +2488,7 @@
                 interactive: false
             }).addTo(map);
 
-            requestAnimationFrame(() => {
-                const labelEl = pinLabelMarker?.getElement()?.querySelector('.mystery__distance-label');
-                if (!labelEl) return;
-                const labelRect = labelEl.getBoundingClientRect();
-                const mapContainer = map.getContainer();
-                const mapRect = mapContainer.getBoundingClientRect();
-                const pad = 60;
-                let panX = 0, panY = 0;
-                if (labelRect.right + pad > mapRect.right) panX = labelRect.right + pad - mapRect.right;
-                else if (labelRect.left - pad < mapRect.left) panX = labelRect.left - pad - mapRect.left;
-                const parentMystery = mapContainer.closest('.mystery');
-                const topStrip = parentMystery?.querySelector('.mystery-header');
-                const botStrip = parentMystery?.querySelector('.edge-wrapper--strip');
-                const safeTop = topStrip ? topStrip.getBoundingClientRect().bottom + pad : mapRect.top + pad;
-                const safeBot = botStrip ? botStrip.getBoundingClientRect().top - pad : mapRect.bottom - pad;
-                if (labelRect.top < safeTop) panY = labelRect.top - safeTop;
-                const pinPoint = map.latLngToContainerPoint(latlng);
-                const pinBottomAbs = mapRect.top + pinPoint.y + pinPx / 2;
-                if (panY === 0 && pinBottomAbs > safeBot) panY = pinBottomAbs - safeBot;
-                if (panX !== 0 || panY !== 0) map.panBy([panX, panY], { animate: true, duration: 0.15 });
-            });
-
+            autoPanForLabel(map, latlng, pinPx);
             pinLabelTimer = setTimeout(removePinLabel, 2000);
         }
 
@@ -2526,6 +2609,7 @@
             if (activeChannel) { activeChannel.unsubscribe(); activeChannel = null; }
             if (countdownInterval) { clearInterval(countdownInterval); countdownInterval = null; }
             if (waitingInterval) { clearInterval(waitingInterval); waitingInterval = null; }
+            if (revealRefreshTimer) { clearTimeout(revealRefreshTimer); revealRefreshTimer = null; }
             if (guessMap) { guessMap.remove(); guessMap = null; }
             if (resultMap) { resultMap.remove(); resultMap = null; }
             guessMarker = null;
@@ -2561,7 +2645,10 @@
                 preloadAllMysteryImages();
                 await buildNavItems();
 
-                if (opts.preserveNav) {
+                if (opts.navigateTo) {
+                    const idx = navItems.findIndex(n => n.type === opts.navigateTo);
+                    if (idx >= 0) navPos = idx;
+                } else if (opts.preserveNav) {
                     const newCurrentAppeared = currentMystery && prevType !== 'current';
                     if (!newCurrentAppeared) {
                         if (prevMysteryId) {
@@ -2575,14 +2662,40 @@
                 }
 
                 await renderMysteryAtPosition();
-                renderWinners();
+                await renderWinners();
                 await renderLeaderboard();
                 await renderPastMysteries();
                 populateStats();
                 updateBottomPadding();
 
+                if (opts.scrollToMystery) {
+                    requestAnimationFrame(() => {
+                        const pad = Math.round(px(2));
+                        let target = null;
+                        if (opts.navigateTo === 'latest') {
+                            const labelEl = document.getElementById('result-label');
+                            target = labelEl?.closest('.edge-wrapper') || labelEl;
+                        }
+                        if (!target) {
+                            target = document.querySelector('#mystery-content .banner--top');
+                        }
+                        if (target) {
+                            const y = target.getBoundingClientRect().top + window.scrollY - pad;
+                            window.scrollTo({ top: y, behavior: 'smooth' });
+                        }
+                    });
+                }
+
                 if (wasActive && !season.active && !currentMystery) {
                     showToast('Winners ready!');
+                    requestAnimationFrame(() => {
+                        const pad = Math.round(px(2));
+                        const target = document.querySelector('#winners-section .banner--top');
+                        if (target) {
+                            const y = target.getBoundingClientRect().top + window.scrollY - pad;
+                            window.scrollTo({ top: y, behavior: 'smooth' });
+                        }
+                    });
                 }
             } finally {
                 isReloading = false;
@@ -2702,8 +2815,10 @@
 
             const pad = Math.min(w, h) * 0.08;
             const baseScale = Math.min((w - 2 * pad) / 2, (h - 2 * pad));
+            if (baseScale <= 0 || !isFinite(zoom)) return;
             const scale = baseScale * zoom;
             const tileSize = 256 / scale;
+            if (tileSize <= 0 || !isFinite(tileSize)) return;
             const tileStartX = Math.floor((vx - w / 2 / scale) / tileSize) * tileSize;
             const tileStartY = Math.floor((vy - h / 2 / scale) / tileSize) * tileSize;
             const tileEndX = Math.ceil((vx + w / 2 / scale) / tileSize) * tileSize;
@@ -2996,16 +3111,24 @@
                 }
                 const rect = containerEl.getBoundingClientRect();
                 const w = rect.width, h = rect.height;
-                const viewPad = Math.min(w, h) * 0.08;
-                const baseScale = Math.min((w - 2 * viewPad) / 2, (h - 2 * viewPad));
-                const fitPad = Math.min(w, h) * 0.2;
-                const spanX = (maxX - minX) || 0.1;
-                const spanY = (maxY - minY) || 0.1;
-                const zoomX = (w - 2 * fitPad) / (spanX * baseScale);
-                const zoomY = (h - 2 * fitPad) / (spanY * baseScale);
-                worldTimeZoom = Math.max(1.5, Math.min(Math.min(zoomX, zoomY), worldTimeMaxZoom));
-                worldTimePanX = (minX + maxX) / 2;
-                worldTimePanY = (minY + maxY) / 2;
+                if (w <= 0 || h <= 0) {
+                    worldTimeZoom = 1.5;
+                } else {
+                    const viewPad = Math.min(w, h) * 0.08;
+                    const baseScale = Math.min((w - 2 * viewPad) / 2, (h - 2 * viewPad));
+                    if (baseScale <= 0) {
+                        worldTimeZoom = 1.5;
+                    } else {
+                        const fitPad = Math.min(w, h) * 0.2;
+                        const spanX = (maxX - minX) || 0.1;
+                        const spanY = (maxY - minY) || 0.1;
+                        const zoomX = (w - 2 * fitPad) / (spanX * baseScale);
+                        const zoomY = (h - 2 * fitPad) / (spanY * baseScale);
+                        worldTimeZoom = Math.max(1.5, Math.min(Math.min(zoomX, zoomY), worldTimeMaxZoom));
+                    }
+                    worldTimePanX = (minX + maxX) / 2;
+                    worldTimePanY = (minY + maxY) / 2;
+                }
             }
 
             let wtDragged = false, wtStartX = 0, wtStartY = 0, wtPointerId = -1;
@@ -3261,6 +3384,29 @@
         }
 
         const CONFETTI_COLORS = ['#000000', '#FFFFFF', '#BA0000', '#000540', '#F4BD41', '#00478a', '#933000', '#6a1001'];
+
+        function fireRevealConfetti() {
+            const mapEl = document.getElementById('result-map-container');
+            if (!mapEl || typeof confetti !== 'function') return;
+            const jPin = mapEl.querySelector('.world-pin--j');
+            if (!jPin) return;
+            const pinRect = jPin.getBoundingClientRect();
+            const cx = (pinRect.left + pinRect.right) / 2;
+            const cy = (pinRect.top + pinRect.bottom) / 2;
+            const originX = cx / window.innerWidth;
+            const originY = cy / window.innerHeight;
+            const toRight = cx < window.innerWidth / 2;
+            const angle = toRight ? 0 : 180;
+            const defaults = { origin: { x: originX, y: originY }, angle, colors: CONFETTI_COLORS, scalar: 1.4, drift: 0, ticks: 400 };
+            function fire(particleRatio, opts) {
+                confetti(Object.assign({}, defaults, opts, { particleCount: Math.floor(200 * particleRatio) }));
+            }
+            fire(0.25, { spread: 26, startVelocity: 55 });
+            fire(0.2, { spread: 60 });
+            fire(0.35, { spread: 100, decay: 0.95, scalar: 1.1 });
+            fire(0.1, { spread: 120, startVelocity: 25, decay: 0.95, scalar: 1.7 });
+            fire(0.1, { spread: 120, startVelocity: 45 });
+        }
 
         function fireConfetti(bannerEl, fromLeft) {
             if (typeof confetti !== 'function') return;
