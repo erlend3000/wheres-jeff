@@ -48,6 +48,8 @@
     /* Mystery section */
     --mystery-image-radius: 0;
     --mystery-map-height: 55vw;
+    --color-time-bg: #00478A;
+    --color-time-bg: color(display-p3 0 0.278 0.541);
     --results-row-height: 5.2vw;
     --results-font-size: 2.6vw;
 

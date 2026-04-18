@@ -81,13 +81,15 @@
     <script type="module">
         import { requireAuth, getProfile } from '../lib/auth.js';
         import {
-            getUserSeasons, getSeasonMysteries, getCurrentMystery, getRevealedMysteries,
+            getUserSeasons, getAllSeasons, getSeasonMysteries, getCurrentMystery, getRevealedMysteries,
             getNextMysteryInfo, getAppSetting,
-            getGuesses, getUserGuess, submitGuess, subscribeGuesses,
+            getGuesses, getUserGuess, submitGuess, submitTimeGuess, subscribeGuesses,
             getMysteryLeaderboard, getSeasonLeaderboard,
             checkSeasonAutoEnd, getSeasonWinners,
             formatTimeAgo, formatDistance, formatDistanceShort, formatCountdown, formatCountdownIn, formatMysteryDate,
-            firstName, formatNumber, formatLocationLabel, reverseGeocode
+            firstName, formatNumber, formatLocationLabel, reverseGeocode,
+            timeToDecimal, decimalToTime, timeYearsDiff, formatTimeDifference, formatTimeDifferenceShort,
+            formatTimeDisplay
         } from '../lib/game.js';
         import { showToast } from '../lib/toast.js';
 
@@ -135,6 +137,7 @@
         const LINE_WEIGHT_VW = 0.39;
         const LINE_DASH_VW = 0.7;
         const LINE_GAP_VW = 0.63;
+        const DICE_SVG = `<svg xmlns="http://www.w3.org/2000/svg" width="0.85em" height="0.85em" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-0.08em"><rect width="12" height="12" x="2" y="10" rx="2" ry="2"/><path d="m17.92 14 3.5-3.5a2.24 2.24 0 0 0 0-3l-5-4.92a2.24 2.24 0 0 0-3 0L10 6"/><path d="M6 18h.01"/><path d="M10 14h.01"/><path d="M15 6h.01"/><path d="M18 9h.01"/></svg>`;
         let lastResultData = null;
         let cachedLeaderboard = null;
         let confettiInterval = null;
@@ -168,6 +171,8 @@
         }
 
         function refreshMapSizes() {
+            if (curveCanvas) resizeCurveCanvas();
+
             if (guessMap) {
                 guessMap.invalidateSize();
                 enforceMinZoom(guessMap);
@@ -194,6 +199,9 @@
                     });
                 }
             }
+            if (worldTimeCanvas) {
+                drawWorldTimeCurve();
+            }
         }
 
         window.addEventListener('resize', refreshMapSizes);
@@ -207,6 +215,8 @@
         // ── State ──
 
         let season = null;
+        let isAdminViewer = false;
+        let memberSeasonIds = new Set();
         let mysteries = [];
         let currentMystery = null;
         let revealedMysteries = [];
@@ -214,9 +224,13 @@
         let navPos = 0;
         let activeChannel = null;
         let countdownInterval = null;
+        let bgPollInterval = null;
+        let isReloading = false;
         let guessMap = null;
         let resultMap = null;
         let worldMap = null;
+        let worldTimeCanvas = null;
+        let worldTimeCtx = null;
         let guessMarker = null;
         let lastResultFit = null;
         let lastWorldFit = null;
@@ -228,6 +242,53 @@
         let pinLabelTimer = null;
         let waitingImages = {};
         const imageCache = new Map();
+
+        function pinStorageKey(mysteryId) { return `wheff_pin_${mysteryId}`; }
+
+        function savePinToStorage(mysteryId, data) {
+            if (isAdminViewer) return;
+            try { localStorage.setItem(pinStorageKey(mysteryId), JSON.stringify(data)); } catch {}
+        }
+
+        function loadPinFromStorage(mysteryId) {
+            try {
+                const raw = localStorage.getItem(pinStorageKey(mysteryId));
+                return raw ? JSON.parse(raw) : null;
+            } catch { return null; }
+        }
+
+        function clearPinStorage(mysteryId) {
+            try { localStorage.removeItem(pinStorageKey(mysteryId)); } catch {}
+        }
+
+        // Infinity curve state (time mysteries)
+        let curveCanvas = null, curveCtx = null;
+        let curveZoom = 1;
+        let curvePinAlpha = null;
+        let curveDragging = false;
+        let curvePanning = false;
+        let curveContainer = null;
+        let curvePinEl = null;
+        let curveFieldsEl = null;
+        let curveResizeHandler = null;
+        let curveDetailLevel = 'year';
+        let curveReadonly = false;
+        let curveAnswerAlpha = null;
+        let curveViewX = 0, curveViewY = 0;
+        let curvePanLastX = null, curvePanLastY = null;
+        let curveDragScreenX = 0, curveDragScreenY = 0;
+        let curveAutoPanRAF = null;
+        let curveUserInteracted = false;
+
+        let curveTimeStart = -13_800_000_000;
+        let curveTimeEnd = 2026;
+        let curveMaxZoom = 5e10;
+        let curveNowInterval = null;
+
+        let curveResultMode = 'distance';
+        let curveResultEntry = null;
+        let curveResultAnswer = null;
+        let curveResultTimer = null;
 
         function preloadImage(url) {
             if (!url) return;
@@ -259,7 +320,16 @@
             const imgs = await Promise.all(types.map(t => getAppSetting(`waiting_image_${t}`)));
             types.forEach((t, i) => { if (imgs[i]) waitingImages[t] = imgs[i]; });
         } catch {}
-        const allSeasons = await getUserSeasons(userId);
+        const userSeasons = await getUserSeasons(userId);
+        memberSeasonIds = new Set(userSeasons.map(s => s.id));
+        let allSeasons;
+        if (profile?.is_admin) {
+            const every = await getAllSeasons();
+            const seen = new Set(userSeasons.map(s => s.id));
+            allSeasons = [...userSeasons, ...every.filter(s => !seen.has(s.id))];
+        } else {
+            allSeasons = userSeasons;
+        }
         let chooserIdx = 0;
         const hasMultipleGames = allSeasons.length > 1;
 
@@ -268,6 +338,7 @@
             openChooser();
         } else {
             season = allSeasons[0] || null;
+            isAdminViewer = profile?.is_admin && season && !memberSeasonIds.has(season.id);
             await initGame();
         }
 
@@ -290,6 +361,7 @@
                 const goBtn = document.getElementById('btn-go');
                 setBannerLoading(goBtn, true);
                 season = seasons[chooserIdx];
+                isAdminViewer = profile?.is_admin && !memberSeasonIds.has(season.id);
                 await initGame();
             });
 
@@ -301,8 +373,10 @@
 
         function openChooser() {
             cleanupMystery();
+            if (bgPollInterval) { clearInterval(bgPollInterval); bgPollInterval = null; }
             if (confettiInterval) { clearInterval(confettiInterval); confettiInterval = null; }
             if (worldMap) { worldMap.remove(); worldMap = null; }
+            worldTimeCanvas = null; worldTimeCtx = null;
             document.getElementById('game-content').style.display = 'none';
             document.getElementById('chooser-section').style.display = '';
             const goBtn = document.getElementById('btn-go');
@@ -329,6 +403,8 @@
             document.getElementById('chooser-section').style.display = 'none';
             document.getElementById('game-content').style.display = '';
 
+            if (bgPollInterval) { clearInterval(bgPollInterval); bgPollInterval = null; }
+
             if (season) {
                 mysteries = await getSeasonMysteries(season.id);
                 currentMystery = getCurrentMystery(mysteries);
@@ -354,6 +430,43 @@
             await renderPastMysteries();
             populateStats();
             updateBottomPadding();
+
+            startBgPoll();
+        }
+
+        function startBgPoll() {
+            if (bgPollInterval) clearInterval(bgPollInterval);
+            if (!season || (!season.active && !season.ending)) return;
+            let bgPolling = false;
+            bgPollInterval = setInterval(async () => {
+                if (bgPolling || !season || isReloading) return;
+                if (countdownInterval) return;
+                bgPolling = true;
+                try {
+                    const now = new Date();
+                    let stateChanged = false;
+
+                    const newRevealed = mysteries.filter(m => m.reveals_at && new Date(m.reveals_at) <= now).length;
+                    if (newRevealed !== revealedMysteries.length) stateChanged = true;
+
+                    if (!stateChanged && !currentMystery && (season.active || season.ending)) {
+                        try {
+                            const fresh = await getSeasonMysteries(season.id);
+                            if (fresh.length !== mysteries.length) stateChanged = true;
+                            if (!stateChanged) {
+                                const freshCurrent = getCurrentMystery(fresh);
+                                if (freshCurrent) stateChanged = true;
+                            }
+                        } catch {}
+                    }
+
+                    if (stateChanged) {
+                        await reloadMysteries({ preserveNav: true });
+                    }
+                } finally {
+                    bgPolling = false;
+                }
+            }, 3000);
         }
 
         function checkReturnToasts() {
@@ -368,7 +481,7 @@
             if (season && !season.active) {
                 if (!currentMystery) {
                     if (!season.ends_at || new Date(season.ends_at) > lastDate) {
-                        showToast('Winners determined');
+                        showToast('Winners ready!');
                     }
                 }
                 return;
@@ -396,6 +509,1169 @@
                     map.scrollWheelZoom.disable();
                 }
             }, true);
+        }
+
+        // ── Infinity Curve (Time Mysteries) ──
+
+        const CURVE_Y_CENTER = 0.5;
+        const CURVE_DRAW_PTS = 800;
+        const NUM_STRANDS = 40;
+        const STREAM_COLORS = [
+            '#9E2848', '#B83058', '#C84060', '#A83555',
+            '#1A5C20', '#0D4A15', '#2D8A38', '#1E7030', '#3A9E48',
+            '#5A4A70', '#7850A0', '#6A5A88', '#8860B0', '#784898',
+            '#1A3FA0', '#0020B8', '#3060C0', '#2050D0', '#1848A8',
+            '#D0A030', '#E8C040', '#C89828', '#B88820',
+        ];
+        const DETAIL_MIN_VISIBLE = { year: 1, month: 1/12, day: 1/365.25, minute: 1/8766 };
+
+        function nowDecimal() {
+            const n = new Date();
+            const y = n.getFullYear();
+            const soy = new Date(y, 0, 1);
+            const eoy = new Date(y + 1, 0, 1);
+            return y + (n - soy) / (eoy - soy);
+        }
+
+        function computeCurvePeriod(answerDec) {
+            const d = Math.max(1, Math.abs(nowDecimal() - answerDec));
+            return Math.min(13_800_000_000, Math.max(100, d * (1 + 0.5 * Math.log(d))));
+        }
+
+        function effectiveAlpha(a) { return a <= 1 ? a : 2 - a; }
+        function alphaToYear(a) { const ea = effectiveAlpha(a); return curveTimeStart + ea * (curveTimeEnd - curveTimeStart); }
+        function yearToAlpha(y) { return Math.max(0, Math.min(1, (y - curveTimeStart) / (curveTimeEnd - curveTimeStart))); }
+        function curvePinPoint(a) { return a <= 1 ? curvePointFromAlpha(a) : leftLobePoint(a - 1); }
+
+        function curvePointFromAlpha(alpha) {
+            const t = ((3 * Math.PI / 2) + alpha * Math.PI) % (2 * Math.PI);
+            const sin2 = Math.sin(t) ** 2;
+            return {
+                x: Math.cos(t) / (1 + sin2),
+                y: Math.sin(t) * Math.cos(t) / (1 + sin2)
+            };
+        }
+
+        function leftLobePoint(u) {
+            const t = ((Math.PI / 2) + u * Math.PI) % (2 * Math.PI);
+            const sin2 = Math.sin(t) ** 2;
+            return {
+                x: Math.cos(t) / (1 + sin2),
+                y: Math.sin(t) * Math.cos(t) / (1 + sin2)
+            };
+        }
+
+        function curveToScreen(cx, cy, w, h, zoom, centerX, centerY) {
+            const pad = Math.min(w, h) * 0.08;
+            const baseScale = Math.min((w - 2 * pad) / 2, (h - 2 * pad));
+            const scale = baseScale * zoom;
+            return {
+                sx: w / 2 + (cx - centerX) * scale,
+                sy: h * CURVE_Y_CENTER - (cy - centerY) * scale
+            };
+        }
+
+        function offsetCurveScreen(points, seed, spreadPx, w, h, zoom, cpx, cpy, pinPosPx) {
+            const drift = Math.sin(seed * 3.17) * 0.6 + Math.sin(seed * 0.73) * 0.4;
+            const zfNorm = Math.min(1, Math.log(zoom) / Math.log(200));
+            const pinchScreenPx = spreadPx * 2.2;
+            const pinchMin = 0.012;
+            const pinchPow = 1.2 + zfNorm * 0.4;
+            const zoomBlend = Math.min(1, Math.log(zoom) / Math.log(50));
+            const waveScale = 1 + zoomBlend * 1.5;
+
+            const screen = [];
+            for (const pt of points) {
+                const s = curveToScreen(pt.x, pt.y, w, h, zoom, cpx, cpy);
+                screen.push({ sx: s.sx, sy: s.sy, t: pt.t != null ? pt.t : 0 });
+            }
+
+            const result = [];
+            for (let i = 0; i < screen.length; i++) {
+                const cur = screen[i];
+                const prev = screen[Math.max(0, i - 1)];
+                const next = screen[Math.min(screen.length - 1, i + 1)];
+                const dx = next.sx - prev.sx;
+                const dy = next.sy - prev.sy;
+                const len = Math.sqrt(dx * dx + dy * dy) || 1;
+                const nx = -dy / len;
+                const ny = dx / len;
+                const t = cur.t || i / screen.length;
+                const baseWave = Math.sin(seed + t * 31) * 0.3
+                               + Math.sin(seed * 1.7 + t * 83) * 0.25
+                               + Math.sin(seed * 0.3 + t * 197) * 0.2
+                               + Math.sin(seed * 2.3 + t * 419) * 0.15
+                               + Math.sin(seed * 0.7 + t * 11) * 0.1;
+                const zt = t * zoom;
+                const zoomWave = Math.sin(seed * 0.9 + zt * 3.7) * 0.25
+                               + Math.sin(seed * 2.1 + zt * 9.3) * 0.2
+                               + Math.sin(seed * 0.4 + zt * 23) * 0.15
+                               + Math.sin(seed * 1.3 + zt * 61) * 0.1;
+                const wave = (baseWave * (1 - zoomBlend * 0.6) + zoomWave * zoomBlend) * waveScale;
+                let pinch = 1;
+                if (pinPosPx) {
+                    for (const pin of pinPosPx) {
+                        const pdx = cur.sx - pin.sx;
+                        const pdy = cur.sy - pin.sy;
+                        const pDist = Math.sqrt(pdx * pdx + pdy * pdy);
+                        if (pDist < pinchScreenPx) {
+                            const f = pDist / pinchScreenPx;
+                            const factor = pinchMin + (1 - pinchMin) * Math.pow(f, pinchPow);
+                            pinch = Math.min(pinch, factor);
+                        }
+                    }
+                }
+                const offset = (wave + drift * 0.5) * spreadPx * pinch;
+                result.push({ sx: cur.sx + nx * offset, sy: cur.sy + ny * offset });
+            }
+            return result;
+        }
+
+        function drawScreenStroke(ctx, screenPts, w) {
+            ctx.beginPath();
+            if (screenPts.length < 2) return;
+            ctx.moveTo(screenPts[0].sx, screenPts[0].sy);
+            for (let i = 1; i < screenPts.length - 1; i++) {
+                const cur = screenPts[i], next = screenPts[i + 1];
+                const inBounds = cur.sx > -500 && cur.sx < w + 500;
+                if (inBounds) {
+                    const mx = (cur.sx + next.sx) / 2;
+                    const my = (cur.sy + next.sy) / 2;
+                    ctx.quadraticCurveTo(cur.sx, cur.sy, mx, my);
+                } else {
+                    ctx.moveTo(cur.sx, cur.sy);
+                }
+            }
+            const last = screenPts[screenPts.length - 1];
+            ctx.lineTo(last.sx, last.sy);
+            ctx.stroke();
+        }
+
+        function drawCurve() {
+            if (!curveCanvas || !curveCtx) return;
+            const dpr = window.devicePixelRatio || 1;
+            const w = curveCanvas.width / dpr;
+            const h = curveCanvas.height / dpr;
+            const ctx = curveCtx;
+            ctx.clearRect(0, 0, w, h);
+
+            const vx = curveViewX, vy = curveViewY;
+
+            const pad = Math.min(w, h) * 0.08;
+            const baseScale = Math.min((w - 2 * pad) / 2, (h - 2 * pad));
+            const scale = baseScale * curveZoom;
+            const tileSize = 256 / scale;
+            const tileStartX = Math.floor((vx - w / 2 / scale) / tileSize) * tileSize;
+            const tileStartY = Math.floor((vy - h / 2 / scale) / tileSize) * tileSize;
+            const tileEndX = Math.ceil((vx + w / 2 / scale) / tileSize) * tileSize;
+            const tileEndY = Math.ceil((vy + h / 2 / scale) / tileSize) * tileSize;
+
+            function tileHash(ix, iy) {
+                let h = (ix * 374761393 + iy * 668265263) | 0;
+                h = ((h ^ (h >> 13)) * 1274126177) | 0;
+                return ((h ^ (h >> 16)) & 0x7fffffff) / 0x7fffffff;
+            }
+
+            for (let gx = tileStartX; gx <= tileEndX; gx += tileSize) {
+                for (let gy = tileStartY; gy <= tileEndY; gy += tileSize) {
+                    const sx = w / 2 + (gx - vx) * scale;
+                    const sy = h * CURVE_Y_CENTER - (gy - vy) * scale;
+                    const tw = tileSize * scale;
+                    const th = tileSize * scale;
+                    const v = tileHash(Math.round(gx / tileSize), Math.round(gy / tileSize));
+                    const lum = (v - 0.5) * 0.02;
+                    if (lum > 0) {
+                        ctx.fillStyle = `rgba(120,180,230,${lum})`;
+                    } else {
+                        ctx.fillStyle = `rgba(0,10,40,${-lum})`;
+                    }
+                    ctx.fillRect(sx, sy - th, tw, th);
+                }
+            }
+
+            for (let gx = tileStartX; ; gx += tileSize) {
+                const sx = w / 2 + (gx - vx) * scale;
+                if (sx > w + 1) break;
+                if (sx < -1) continue;
+                const lineHash = tileHash(Math.round(gx / tileSize), 99999);
+                const op = 0.13 + lineHash * 0.09;
+                ctx.strokeStyle = `rgba(80, 150, 210, ${op})`;
+                ctx.lineWidth = 0.6 + lineHash * 0.4;
+                ctx.beginPath(); ctx.moveTo(sx, 0); ctx.lineTo(sx, h); ctx.stroke();
+            }
+            for (let gy = tileStartY; ; gy += tileSize) {
+                const sy = h * CURVE_Y_CENTER - (gy - vy) * scale;
+                if (sy < -1) break;
+                if (sy > h + 1) continue;
+                const lineHash = tileHash(99999, Math.round(gy / tileSize));
+                const op = 0.13 + lineHash * 0.09;
+                ctx.strokeStyle = `rgba(80, 150, 210, ${op})`;
+                ctx.lineWidth = 0.6 + lineHash * 0.4;
+                ctx.beginPath(); ctx.moveTo(0, sy); ctx.lineTo(w, sy); ctx.stroke();
+            }
+
+            const zoomFrac = curveMaxZoom > 1 ? Math.log(curveZoom) / Math.log(curveMaxZoom) : 0;
+            const vwScale = w / 800;
+            const spreadPx = (14 + Math.pow(zoomFrac, 0.8) * 284) * vwScale;
+
+            const fullPts = [];
+            for (let i = 0; i <= CURVE_DRAW_PTS; i++) {
+                const frac = i / CURVE_DRAW_PTS;
+                const t = frac * 2 * Math.PI;
+                const sin2 = Math.sin(t) ** 2;
+                fullPts.push({ x: Math.cos(t) / (1 + sin2), y: Math.sin(t) * Math.cos(t) / (1 + sin2), t: frac });
+            }
+
+            const pinPosPx = [];
+            if (curvePinAlpha != null) {
+                const pp = curvePinPoint(curvePinAlpha);
+                pinPosPx.push(curveToScreen(pp.x, pp.y, w, h, curveZoom, vx, vy));
+            }
+            if (curveAnswerAlpha != null) {
+                const onLeft = curvePinAlpha != null && curvePinAlpha > 1;
+                const ap = onLeft ? leftLobePoint(1 - curveAnswerAlpha) : curvePointFromAlpha(curveAnswerAlpha);
+                pinPosPx.push(curveToScreen(ap.x, ap.y, w, h, curveZoom, vx, vy));
+            }
+            const pinPosArg = pinPosPx.length ? pinPosPx : null;
+
+            let dashPath = null;
+            let dashClipW = 0;
+            if (curveAnswerAlpha != null && curvePinAlpha != null) {
+                const onLeft = curvePinAlpha > 1;
+                const lobePointFn = onLeft ? leftLobePoint : curvePointFromAlpha;
+                let lobeParamPin, lobeParamAns;
+                if (onLeft) {
+                    lobeParamPin = curvePinAlpha - 1;
+                    lobeParamAns = 1 - curveAnswerAlpha;
+                } else {
+                    lobeParamPin = curvePinAlpha;
+                    lobeParamAns = curveAnswerAlpha;
+                }
+                const dMin = Math.min(lobeParamPin, lobeParamAns);
+                const dMax = Math.max(lobeParamPin, lobeParamAns);
+                const DASH_PTS = 300;
+                dashPath = [];
+                for (let i = 0; i <= DASH_PTS; i++) {
+                    const a = dMin + (dMax - dMin) * (i / DASH_PTS);
+                    const pt = lobePointFn(a);
+                    dashPath.push(curveToScreen(pt.x, pt.y, w, h, curveZoom, vx, vy));
+                }
+                dashClipW = spreadPx * 3 + 16;
+            }
+
+            if (dashPath) {
+                ctx.save();
+                ctx.beginPath();
+                ctx.rect(0, 0, w, h);
+                const halfW = dashClipW / 2;
+                for (let i = 0; i < dashPath.length - 1; i++) {
+                    const p0 = dashPath[i], p1 = dashPath[i + 1];
+                    const dx = p1.sx - p0.sx, dy = p1.sy - p0.sy;
+                    const len = Math.sqrt(dx * dx + dy * dy) || 1;
+                    const nx = -dy / len * halfW, ny = dx / len * halfW;
+                    if (i === 0) ctx.moveTo(p0.sx + nx, p0.sy + ny);
+                    ctx.lineTo(p1.sx + nx, p1.sy + ny);
+                }
+                for (let i = dashPath.length - 1; i > 0; i--) {
+                    const p0 = dashPath[i], p1 = dashPath[i - 1];
+                    const dx = p1.sx - p0.sx, dy = p1.sy - p0.sy;
+                    const len = Math.sqrt(dx * dx + dy * dy) || 1;
+                    const nx = -dy / len * halfW, ny = dx / len * halfW;
+                    if (i === dashPath.length - 1) ctx.lineTo(p0.sx + nx, p0.sy + ny);
+                    ctx.lineTo(p1.sx + nx, p1.sy + ny);
+                }
+                ctx.closePath();
+                ctx.clip('evenodd');
+            }
+
+            if (curveZoom <= 2) {
+                for (let s = 0; s < NUM_STRANDS; s++) {
+                    const seed = s * 137.5;
+                    const screenPts = offsetCurveScreen(fullPts, seed, spreadPx, w, h, curveZoom, vx, vy, pinPosArg);
+                    ctx.strokeStyle = STREAM_COLORS[s % STREAM_COLORS.length];
+                    const thick = (0.15 + (Math.sin(seed * 1.13) * 0.5 + 0.5) * 1.6 + zoomFrac * 0.7) * vwScale;
+                    ctx.lineWidth = thick;
+                    drawScreenStroke(ctx, screenPts, w);
+                }
+            } else {
+                let viewA = 0, viewD = Infinity, viewOnLeft = false;
+                const SCAN_PTS = 400;
+                for (let i = 0; i <= SCAN_PTS; i++) {
+                    const a = i / SCAN_PTS;
+                    const ptR = curvePointFromAlpha(a);
+                    const dR = (ptR.x - vx) ** 2 + (ptR.y - vy) ** 2;
+                    if (dR < viewD) { viewD = dR; viewA = a; viewOnLeft = false; }
+                    const ptL = leftLobePoint(a);
+                    const dL = (ptL.x - vx) ** 2 + (ptL.y - vy) ** 2;
+                    if (dL < viewD) { viewD = dL; viewA = a; viewOnLeft = true; }
+                }
+                let refMin = Math.max(0, viewA - 1 / SCAN_PTS);
+                let refMax = Math.min(1, viewA + 1 / SCAN_PTS);
+                for (let r = 0; r < 4; r++) {
+                    const step = (refMax - refMin) / 50;
+                    let bestA = viewA, bestD = viewD, bestLeft = viewOnLeft;
+                    for (let i = 0; i <= 50; i++) {
+                        const a = refMin + step * i;
+                        const ptR = curvePointFromAlpha(a);
+                        const dR = (ptR.x - vx) ** 2 + (ptR.y - vy) ** 2;
+                        if (dR < bestD) { bestD = dR; bestA = a; bestLeft = false; }
+                        const ptL = leftLobePoint(a);
+                        const dL = (ptL.x - vx) ** 2 + (ptL.y - vy) ** 2;
+                        if (dL < bestD) { bestD = dL; bestA = a; bestLeft = true; }
+                    }
+                    viewA = bestA; viewD = bestD; viewOnLeft = bestLeft;
+                    refMin = Math.max(0, viewA - step);
+                    refMax = Math.min(1, viewA + step);
+                }
+
+                const visAlphaHalf = Math.min(1.0, 5 / curveZoom);
+                const aMin = Math.max(0, viewA - visAlphaHalf);
+                const aMax = Math.min(1, viewA + visAlphaHalf);
+
+                const primaryFn = viewOnLeft ? leftLobePoint : curvePointFromAlpha;
+                const mirrorFn = viewOnLeft ? curvePointFromAlpha : leftLobePoint;
+                const primaryTBase = viewOnLeft ? 0.5 : 0;
+                const mirrorTBase = viewOnLeft ? 0 : 0.5;
+
+                const detailPrimary = [];
+                for (let i = 0; i <= CURVE_DRAW_PTS; i++) {
+                    const alpha = aMin + (aMax - aMin) * i / CURVE_DRAW_PTS;
+                    const pt = primaryFn(alpha);
+                    pt.t = primaryTBase + alpha * 0.5;
+                    detailPrimary.push(pt);
+                }
+                const mMin = 1 - aMax, mMax = 1 - aMin;
+                const detailMirror = [];
+                for (let i = 0; i <= CURVE_DRAW_PTS; i++) {
+                    const alpha = mMin + (mMax - mMin) * i / CURVE_DRAW_PTS;
+                    const pt = mirrorFn(alpha);
+                    pt.t = mirrorTBase + alpha * 0.5;
+                    detailMirror.push(pt);
+                }
+
+                for (let s = 0; s < NUM_STRANDS; s++) {
+                    const seed = s * 137.5;
+                    ctx.strokeStyle = STREAM_COLORS[s % STREAM_COLORS.length];
+                    const thick = (0.15 + (Math.sin(seed * 1.13) * 0.5 + 0.5) * 1.6 + zoomFrac * 0.7) * vwScale;
+                    ctx.lineWidth = thick;
+                    const sP = offsetCurveScreen(detailPrimary, seed, spreadPx, w, h, curveZoom, vx, vy, pinPosArg);
+                    drawScreenStroke(ctx, sP, w);
+                    const sM = offsetCurveScreen(detailMirror, seed, spreadPx, w, h, curveZoom, vx, vy, pinPosArg);
+                    drawScreenStroke(ctx, sM, w);
+                }
+            }
+
+            if (dashPath) {
+                ctx.restore();
+                ctx.save();
+                ctx.strokeStyle = '#fff';
+                ctx.lineWidth = px(LINE_WEIGHT_VW);
+                ctx.setLineDash([px(LINE_DASH_VW), px(LINE_GAP_VW)]);
+                ctx.lineCap = 'butt';
+                ctx.beginPath();
+                dashPath.forEach((p, i) => i === 0 ? ctx.moveTo(p.sx, p.sy) : ctx.lineTo(p.sx, p.sy));
+                ctx.stroke();
+                ctx.restore();
+            }
+
+            if (curvePinAlpha != null) {
+                const pp = curvePinPoint(curvePinAlpha);
+                const { sx, sy } = curveToScreen(pp.x, pp.y, w, h, curveZoom, vx, vy);
+                if (curvePinEl) {
+                    curvePinEl.style.left = sx + 'px';
+                    curvePinEl.style.top = sy + 'px';
+                    curvePinEl.style.display = '';
+                }
+            }
+
+            if (curveAnswerAlpha != null) {
+                const onLeftLobe = curvePinAlpha != null && curvePinAlpha > 1;
+                const ap = onLeftLobe ? leftLobePoint(1 - curveAnswerAlpha) : curvePointFromAlpha(curveAnswerAlpha);
+                const { sx, sy } = curveToScreen(ap.x, ap.y, w, h, curveZoom, vx, vy);
+                const ansEl = curveContainer?.querySelector('.curve-pin--answer');
+                if (ansEl) {
+                    ansEl.style.left = sx + 'px';
+                    ansEl.style.top = sy + 'px';
+                    ansEl.style.display = '';
+                }
+            }
+        }
+
+        function resizeCurveCanvas() {
+            if (!curveCanvas || !curveContainer) return;
+            const rect = curveContainer.getBoundingClientRect();
+            const dpr = window.devicePixelRatio || 1;
+            curveCanvas.width = rect.width * dpr;
+            curveCanvas.height = rect.height * dpr;
+            curveCanvas.style.width = rect.width + 'px';
+            curveCanvas.style.height = rect.height + 'px';
+            curveCtx.setTransform(dpr, 0, 0, dpr, 0, 0);
+            drawCurve();
+        }
+
+        function ensurePinVisible() {
+            if (curvePinAlpha == null || !curveCanvas) return;
+            const dpr = window.devicePixelRatio || 1;
+            const w = curveCanvas.width / dpr;
+            const h = curveCanvas.height / dpr;
+            if (w === 0 || h === 0) return;
+            const { scale } = curveCanvasMetrics();
+            const pp = curvePinPoint(curvePinAlpha);
+            const { sx, sy } = curveToScreen(pp.x, pp.y, w, h, curveZoom, curveViewX, curveViewY);
+            const mx = w * 0.15;
+            if (sx < mx) {
+                curveViewX = pp.x + (w / 2 - mx) / scale;
+            } else if (sx > w - mx) {
+                curveViewX = pp.x - (w / 2 - mx) / scale;
+            }
+
+            const fieldsH = h * 0.12;
+            const cy = h * CURVE_Y_CENTER;
+            if (sy > cy - fieldsH && sy < cy + fieldsH) {
+                const shift = (fieldsH + h * 0.05) / scale;
+                if (sy < cy) {
+                    curveViewY += shift;
+                } else if (sy > cy) {
+                    curveViewY -= shift;
+                } else {
+                    curveViewY += (Math.random() > 0.5 ? 1 : -1) * shift;
+                }
+            }
+            drawCurve();
+        }
+
+        function findNearestAlpha(screenX, screenY, w, h) {
+            const vx = curveViewX, vy = curveViewY;
+            let bestAlpha = 0, bestDist = Infinity;
+            const coarse = 300;
+
+            for (let i = 0; i <= coarse; i++) {
+                const a = i / coarse;
+                const pt = curvePointFromAlpha(a);
+                const { sx, sy } = curveToScreen(pt.x, pt.y, w, h, curveZoom, vx, vy);
+                const d = (sx - screenX) ** 2 + (sy - screenY) ** 2;
+                if (d < bestDist) { bestDist = d; bestAlpha = a; }
+            }
+            for (let i = 0; i <= coarse; i++) {
+                const u = i / coarse;
+                const lp = leftLobePoint(u);
+                const { sx, sy } = curveToScreen(lp.x, lp.y, w, h, curveZoom, vx, vy);
+                const d = (sx - screenX) ** 2 + (sy - screenY) ** 2;
+                if (d < bestDist) { bestDist = d; bestAlpha = 1 + u; }
+            }
+
+            let range = 3.0 / coarse;
+            for (let iter = 0; iter < 10; iter++) {
+                const lo = Math.max(0, bestAlpha - range);
+                const hi = Math.min(2, bestAlpha + range);
+                for (let i = 0; i <= 80; i++) {
+                    const a = lo + (hi - lo) * i / 80;
+                    const pt = curvePinPoint(a);
+                    const { sx, sy } = curveToScreen(pt.x, pt.y, w, h, curveZoom, vx, vy);
+                    const d = (sx - screenX) ** 2 + (sy - screenY) ** 2;
+                    if (d < bestDist) { bestDist = d; bestAlpha = a; }
+                }
+                range /= 5;
+            }
+
+            if (bestAlpha < 0.005 || bestAlpha > 1.995) {
+                bestAlpha = 1.0 - 1e-9;
+            }
+            return { alpha: bestAlpha, dist: Math.sqrt(bestDist) };
+        }
+
+        function findNearestAlphaLocal(screenX, screenY, w, h, currentAlpha) {
+            const vx = curveViewX, vy = curveViewY;
+            const searchRange = 0.3 / curveZoom;
+            let bestAlpha = currentAlpha, bestDist = Infinity;
+            const steps = 300;
+            const lo = currentAlpha - searchRange;
+            const hi = currentAlpha + searchRange;
+
+            for (let i = 0; i <= steps; i++) {
+                let a = lo + (hi - lo) * i / steps;
+                a = ((a % 2) + 2) % 2;
+                const pt = curvePinPoint(a);
+                const { sx, sy } = curveToScreen(pt.x, pt.y, w, h, curveZoom, vx, vy);
+                const d = (sx - screenX) ** 2 + (sy - screenY) ** 2;
+                if (d < bestDist) { bestDist = d; bestAlpha = a; }
+            }
+
+            let range = (hi - lo) / steps * 3;
+            for (let iter = 0; iter < 10; iter++) {
+                const rlo = bestAlpha - range;
+                const rhi = bestAlpha + range;
+                for (let i = 0; i <= 80; i++) {
+                    let a = rlo + (rhi - rlo) * i / 80;
+                    a = ((a % 2) + 2) % 2;
+                    const pt = curvePinPoint(a);
+                    const { sx, sy } = curveToScreen(pt.x, pt.y, w, h, curveZoom, vx, vy);
+                    const d = (sx - screenX) ** 2 + (sy - screenY) ** 2;
+                    if (d < bestDist) { bestDist = d; bestAlpha = a; }
+                }
+                range /= 5;
+            }
+            return { alpha: bestAlpha, dist: Math.sqrt(bestDist) };
+        }
+
+        function updateTimeFields() {
+            if (!curveFieldsEl || curvePinAlpha == null) return;
+            const decYear = alphaToYear(curvePinAlpha);
+            const t = decimalToTime(decYear);
+            const display = formatTimeDisplay(t, curveDetailLevel);
+            const yearEl = curveFieldsEl.querySelector('[data-field="year"]');
+            const dateEl = curveFieldsEl.querySelector('[data-field="date"]');
+            const timeEl = curveFieldsEl.querySelector('[data-field="time"]');
+            if (yearEl && !yearEl.classList.contains('is-editing')) {
+                yearEl.querySelector('.time-field__display').textContent = display.year;
+            }
+            if (dateEl) {
+                if (!dateEl.classList.contains('is-editing')) {
+                    dateEl.querySelector('.time-field__display').textContent = display.date;
+                }
+                dateEl.style.display = display.date ? '' : 'none';
+            }
+            if (timeEl) {
+                if (!timeEl.classList.contains('is-editing')) {
+                    timeEl.querySelector('.time-field__display').textContent = display.time;
+                }
+                timeEl.style.display = display.time ? '' : 'none';
+            }
+        }
+
+        function showCurveTimeFields(t) {
+            if (!curveFieldsEl) return;
+            const display = formatTimeDisplay(t, curveDetailLevel);
+            const yearEl = curveFieldsEl.querySelector('[data-field="year"]');
+            const dateEl = curveFieldsEl.querySelector('[data-field="date"]');
+            const timeEl = curveFieldsEl.querySelector('[data-field="time"]');
+            if (yearEl) yearEl.querySelector('.time-field__display').textContent = display.year;
+            if (dateEl) {
+                dateEl.querySelector('.time-field__display').textContent = display.date;
+                dateEl.style.display = display.date ? '' : 'none';
+            }
+            if (timeEl) {
+                timeEl.querySelector('.time-field__display').textContent = display.time;
+                timeEl.style.display = display.time ? '' : 'none';
+            }
+        }
+
+        const RANGE_UNIT_TO_YEARS = { minute: 1/525960, hour: 1/8766, day: 1/365.25, month: 1/12, year: 1 };
+
+        function effectiveTimeDiff(entry, answer) {
+            let diff = timeYearsDiff(entry, answer, answer.detail_level);
+            if (answer.range > 0 && answer.range_unit) {
+                diff = Math.max(0, diff - answer.range * (RANGE_UNIT_TO_YEARS[answer.range_unit] || 1));
+            }
+            return diff;
+        }
+
+        function showCurveDistanceFields() {
+            if (!curveFieldsEl || !curveResultEntry || !curveResultAnswer) return;
+            const yearsDiff = effectiveTimeDiff(curveResultEntry, curveResultAnswer);
+            const distText = formatTimeDifference(yearsDiff);
+            const yearEl = curveFieldsEl.querySelector('[data-field="year"]');
+            const dateEl = curveFieldsEl.querySelector('[data-field="date"]');
+            const timeEl = curveFieldsEl.querySelector('[data-field="time"]');
+            if (yearEl) yearEl.querySelector('.time-field__display').textContent = distText;
+            if (dateEl) dateEl.style.display = 'none';
+            if (timeEl) timeEl.style.display = 'none';
+        }
+
+        function fitCurveToBothPins() {
+            if (curveAnswerAlpha == null || curvePinAlpha == null) return;
+            const pinPt = curvePinPoint(curvePinAlpha);
+            const onLeftLobe = curvePinAlpha > 1;
+            const ansPt = onLeftLobe ? leftLobePoint(1 - curveAnswerAlpha) : curvePointFromAlpha(curveAnswerAlpha);
+            const cx = (pinPt.x + ansPt.x) / 2;
+            const cy = (pinPt.y + ansPt.y) / 2;
+            curveViewX = cx;
+            curveViewY = cy;
+            const dx = Math.abs(pinPt.x - ansPt.x);
+            const dy = Math.abs(pinPt.y - ansPt.y);
+            const span = Math.max(dx, dy, 0.05);
+            const { w, h } = curveCanvasMetrics();
+            const pad = Math.min(w, h) * 0.08;
+            const baseScale = Math.min((w - 2 * pad) / 2, (h - 2 * pad));
+            const availW = w * 0.46;
+            const availH = h * 0.37;
+            const neededZoom = Math.min(availW / (dx * baseScale || 1), availH / (dy * baseScale || 1));
+            curveZoom = Math.max(1.5, Math.min(curveMaxZoom, neededZoom));
+
+            const fieldH = curveFieldsEl ? curveFieldsEl.offsetHeight : 0;
+            const fieldCenterY = h * CURVE_Y_CENTER;
+            const halfField = fieldH / 2 + 10;
+            const pScreen = curveToScreen(pinPt.x, pinPt.y, w, h, curveZoom, curveViewX, curveViewY);
+            const aScreen = curveToScreen(ansPt.x, ansPt.y, w, h, curveZoom, curveViewX, curveViewY);
+            const topPin = Math.min(pScreen.sy, aScreen.sy);
+            const botPin = Math.max(pScreen.sy, aScreen.sy);
+            if (topPin > fieldCenterY - halfField && botPin < fieldCenterY + halfField) {
+                curveViewY += (halfField + 20) / (baseScale * curveZoom);
+            } else if (topPin < fieldCenterY + halfField && topPin > fieldCenterY - halfField) {
+                curveViewY += (fieldCenterY + halfField - topPin + 15) / (baseScale * curveZoom);
+            } else if (botPin > fieldCenterY - halfField && botPin < fieldCenterY + halfField) {
+                curveViewY -= (botPin - (fieldCenterY - halfField) + 15) / (baseScale * curveZoom);
+            }
+        }
+
+        const MONTHS_SHORT = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+
+        function getEditValueForField(fieldType) {
+            if (curvePinAlpha == null) return '';
+            const t = decimalToTime(alphaToYear(curvePinAlpha));
+            switch (fieldType) {
+                case 'year': return String(t.bc ? -Math.abs(t.year) : t.year);
+                case 'date':
+                    if (curveDetailLevel === 'month') return String(t.month);
+                    return `${t.month}/${t.day}`;
+                case 'time': return `${String(t.hour).padStart(2,'0')}:${String(t.minute).padStart(2,'0')}`;
+            }
+            return '';
+        }
+
+        function sizeInputToContent(input) {
+            const span = document.createElement('span');
+            span.style.cssText = 'position:absolute;visibility:hidden;white-space:pre;font:inherit;text-transform:inherit;';
+            input.parentNode.appendChild(span);
+            span.textContent = input.value || ' ';
+            input.style.width = span.offsetWidth + 'px';
+            span.remove();
+        }
+
+        function startFieldEdit(fieldEl) {
+            if (curvePinAlpha == null) return;
+            const fieldType = fieldEl.dataset.field;
+            const display = fieldEl.querySelector('.time-field__display');
+            const input = fieldEl.querySelector('.time-field__input');
+            const value = getEditValueForField(fieldType);
+            fieldEl.classList.add('is-editing');
+            display.style.display = 'none';
+            input.value = value;
+            input.style.display = '';
+            sizeInputToContent(input);
+            input.focus();
+            input.select();
+        }
+
+        function cancelFieldEdit(fieldEl) {
+            const display = fieldEl.querySelector('.time-field__display');
+            const input = fieldEl.querySelector('.time-field__input');
+            fieldEl.classList.remove('is-editing');
+            input.style.display = 'none';
+            display.style.display = '';
+            updateTimeFields();
+        }
+
+        function commitFieldEdit(fieldEl) {
+            const fieldType = fieldEl.dataset.field;
+            const input = fieldEl.querySelector('.time-field__input');
+            const value = input.value.trim();
+            if (!value) { cancelFieldEdit(fieldEl); return; }
+
+            const t = decimalToTime(alphaToYear(curvePinAlpha));
+            const newTime = { year: t.year, month: t.month, day: t.day, hour: t.hour, minute: t.minute, bc: t.bc };
+
+            try {
+                switch (fieldType) {
+                    case 'year': {
+                        const y = Number(value);
+                        if (isNaN(y) || !isFinite(y)) throw new Error('Invalid year');
+                        newTime.bc = y < 0;
+                        newTime.year = Math.abs(y);
+                        break;
+                    }
+                    case 'date': {
+                        if (curveDetailLevel === 'month') {
+                            const m = Math.round(Number(value));
+                            if (isNaN(m) || m < 1 || m > 12) throw new Error('Month must be 1–12');
+                            newTime.month = m;
+                        } else {
+                            let m, d;
+                            if (value.includes('/')) {
+                                const parts = value.split('/');
+                                m = Number(parts[0]); d = Number(parts[1]);
+                            } else if (value.includes('.')) {
+                                const parts = value.split('.');
+                                d = Number(parts[0]); m = Number(parts[1]);
+                            } else if (/^\d{3,4}$/.test(value)) {
+                                const s = value.padStart(4, '0');
+                                m = Number(s.slice(0, 2)); d = Number(s.slice(2));
+                            } else {
+                                throw new Error('Wrong date format');
+                            }
+                            m = Math.round(m); d = Math.round(d);
+                            if (isNaN(m) || m < 1 || m > 12) throw new Error('Month must be 1–12');
+                            if (isNaN(d) || d < 1 || d > 31) throw new Error('Day must be 1–31');
+                            newTime.month = m;
+                            newTime.day = d;
+                        }
+                        break;
+                    }
+                    case 'time': {
+                        let h, m;
+                        if (value.includes(':')) {
+                            const parts = value.split(':');
+                            h = Number(parts[0]); m = Number(parts[1]);
+                        } else if (value.includes('.')) {
+                            const parts = value.split('.');
+                            h = Number(parts[0]); m = Number(parts[1]);
+                        } else if (/^\d{3,4}$/.test(value)) {
+                            const s = value.padStart(4, '0');
+                            h = Number(s.slice(0, 2)); m = Number(s.slice(2));
+                        } else {
+                            throw new Error('Wrong time format');
+                        }
+                        h = Math.round(h); m = Math.round(m);
+                        if (isNaN(h) || h < 0 || h > 23) throw new Error('Hours must be 0–23');
+                        if (isNaN(m) || m < 0 || m > 59) throw new Error('Minutes must be 0–59');
+                        newTime.hour = h;
+                        newTime.minute = m;
+                        break;
+                    }
+                }
+
+                const dec = timeToDecimal(newTime);
+                if (dec < curveTimeStart || dec > curveTimeEnd) {
+                    throw new Error('Time outside range');
+                }
+
+                const wasOnLeftLobe = curvePinAlpha > 1;
+                const rightAlpha = yearToAlpha(dec);
+                curvePinAlpha = wasOnLeftLobe ? 2 - rightAlpha : rightAlpha;
+                cancelFieldEdit(fieldEl);
+                drawCurve();
+                ensurePinVisible();
+                curveUserInteracted = true;
+                curveContainer?.dispatchEvent(new CustomEvent('curvepin'));
+            } catch (err) {
+                showToast(err.message, { type: 'error' });
+                cancelFieldEdit(fieldEl);
+            }
+        }
+
+        function screenDistToCurve(screenX, screenY, w, h) {
+            const { scale } = curveCanvasMetrics();
+            const cx = (screenX - w / 2) / scale + curveViewX;
+            const cy = -(screenY - h * CURVE_Y_CENTER) / scale + curveViewY;
+            let best = Infinity, bestA = 0, bestLobe = 0;
+            const steps = 200;
+            for (let i = 0; i <= steps; i++) {
+                const a = i / steps;
+                const pt = curvePointFromAlpha(a);
+                const d = (pt.x - cx) ** 2 + (pt.y - cy) ** 2;
+                if (d < best) { best = d; bestA = a; bestLobe = 0; }
+            }
+            for (let i = 0; i <= steps; i++) {
+                const a = i / steps;
+                const pt = leftLobePoint(a);
+                const d = (pt.x - cx) ** 2 + (pt.y - cy) ** 2;
+                if (d < best) { best = d; bestA = a; bestLobe = 1; }
+            }
+            let range = 3.0 / steps;
+            for (let iter = 0; iter < 6; iter++) {
+                const lo = Math.max(0, bestA - range);
+                const hi = Math.min(1, bestA + range);
+                for (let i = 0; i <= 40; i++) {
+                    const a = lo + (hi - lo) * i / 40;
+                    const pt = bestLobe === 0 ? curvePointFromAlpha(a) : leftLobePoint(a);
+                    const d = (pt.x - cx) ** 2 + (pt.y - cy) ** 2;
+                    if (d < best) { best = d; bestA = a; }
+                }
+                range /= 4;
+            }
+            return Math.sqrt(best) * scale;
+        }
+
+        function bindFieldEditing(fieldsEl) {
+            fieldsEl.querySelectorAll('.time-field--editable').forEach(fieldEl => {
+                fieldEl.addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    if (fieldEl.classList.contains('is-editing')) return;
+                    startFieldEdit(fieldEl);
+                });
+
+                const input = fieldEl.querySelector('.time-field__input');
+                input.addEventListener('blur', () => {
+                    if (!fieldEl.classList.contains('is-editing')) return;
+                    commitFieldEdit(fieldEl);
+                });
+                input.addEventListener('keydown', (e) => {
+                    e.stopPropagation();
+                    if (e.key === 'Enter') { e.preventDefault(); commitFieldEdit(fieldEl); }
+                    if (e.key === 'Escape') { e.preventDefault(); cancelFieldEdit(fieldEl); }
+                });
+                input.addEventListener('input', () => sizeInputToContent(input));
+                input.addEventListener('pointerdown', (e) => e.stopPropagation());
+            });
+        }
+
+        function getGuessTimeFromCurve() {
+            if (curvePinAlpha == null) return null;
+            const decYear = alphaToYear(curvePinAlpha);
+            const t = decimalToTime(decYear);
+            t.lobe = curvePinAlpha > 1 ? 1 : 0;
+            return t;
+        }
+
+        function setCurvePinFromTime(timeObj) {
+            const dec = timeToDecimal(timeObj);
+            let alpha = yearToAlpha(dec);
+            if (timeObj.lobe === 1) {
+                alpha = 2 - alpha;
+            } else if (timeObj.lobe == null) {
+                const hash = Math.abs(Math.sin(dec * 127.1 + 311.7)) * 10000;
+                if ((hash | 0) % 2 === 1) alpha = 2 - alpha;
+            }
+            curvePinAlpha = alpha;
+            const pp = curvePinPoint(curvePinAlpha);
+            curveViewX = pp.x;
+            curveViewY = pp.y;
+        }
+
+        function initInfinityCurve(containerEl, opts = {}) {
+            curveContainer = containerEl;
+            curveDetailLevel = opts.detailLevel || 'year';
+            curveReadonly = opts.readonly || false;
+            curvePinAlpha = null;
+            curveAnswerAlpha = null;
+            curvePanning = false;
+            curveDragging = false;
+            curveUserInteracted = false;
+
+            const nd = nowDecimal();
+            let adminDefinedPeriod = false;
+            if (opts.answer?.period_start && opts.answer?.period_end) {
+                curveTimeStart = timeToDecimal(opts.answer.period_start);
+                curveTimeEnd = timeToDecimal(opts.answer.period_end);
+                adminDefinedPeriod = true;
+            } else if (opts.answer) {
+                const ansDec = timeToDecimal(opts.answer);
+                const period = computeCurvePeriod(ansDec);
+                curveTimeEnd = nd;
+                curveTimeStart = Math.max(-13_800_000_000, nd - period);
+            } else {
+                curveTimeEnd = nd;
+                curveTimeStart = nd - 100;
+            }
+
+            const period = curveTimeEnd - curveTimeStart;
+            const minVisible = DETAIL_MIN_VISIBLE[curveDetailLevel] || 1;
+            curveZoom = 1.5;
+            curveMaxZoom = Math.max(10, period / minVisible);
+            curveViewX = 0;
+            curveViewY = 0;
+
+            curveCanvas = document.createElement('canvas');
+            curveCanvas.className = 'time-canvas';
+            curveCtx = curveCanvas.getContext('2d');
+            containerEl.appendChild(curveCanvas);
+
+            const initial = esc(firstName(profile.name).charAt(0).toUpperCase());
+            curvePinEl = document.createElement('div');
+            curvePinEl.className = 'curve-pin';
+            curvePinEl.innerHTML = `<div class="world-pin" style="background:#000;">${initial}</div>`;
+            curvePinEl.style.display = 'none';
+            containerEl.appendChild(curvePinEl);
+
+            curveFieldsEl = document.createElement('div');
+            curveFieldsEl.className = 'time-fields';
+            const editableClass = curveReadonly ? '' : ' time-field--editable';
+            curveFieldsEl.innerHTML = `
+                <div class="time-field${editableClass}" data-field="date" style="display:none"><span class="time-field__display"></span><input class="time-field__input" style="display:none"></div>
+                <div class="time-field${editableClass}" data-field="year"><span class="time-field__display">—</span><input class="time-field__input" style="display:none"></div>
+                <div class="time-field${editableClass}" data-field="time" style="display:none"><span class="time-field__display"></span><input class="time-field__input" style="display:none"></div>
+            `;
+            containerEl.appendChild(curveFieldsEl);
+
+            if (!curveReadonly) bindFieldEditing(curveFieldsEl);
+
+            if (opts.pinTime) {
+                setCurvePinFromTime(opts.pinTime);
+                updateTimeFields();
+            } else if (!curveReadonly && opts.savedAlpha != null) {
+                curvePinAlpha = opts.savedAlpha;
+                curveUserInteracted = true;
+                updateTimeFields();
+            } else if (!curveReadonly) {
+                const lobeAlpha = Math.random() * 0.98 + 0.01;
+                curvePinAlpha = Math.random() < 0.5 ? lobeAlpha : 2 - lobeAlpha;
+                updateTimeFields();
+            }
+            if (opts.answerTime) {
+                const dec = timeToDecimal(opts.answerTime);
+                curveAnswerAlpha = yearToAlpha(dec);
+                const ansPin = document.createElement('div');
+                ansPin.className = 'curve-pin curve-pin--answer';
+                ansPin.innerHTML = `<div class="world-pin world-pin--j" style="background:#BA0000;cursor:pointer;">J</div>`;
+                ansPin.style.display = 'none';
+                containerEl.appendChild(ansPin);
+
+                if (curveReadonly && opts.pinTime) {
+                    curveResultAnswer = opts.answerTime;
+                    curveResultEntry = opts.pinTime;
+                    curveResultMode = 'distance';
+
+                    curvePinEl.style.cursor = 'pointer';
+                    ansPin.style.pointerEvents = 'auto';
+                    curvePinEl.style.pointerEvents = 'auto';
+
+                    ansPin.addEventListener('click', (e) => {
+                        e.stopPropagation();
+                        if (curveResultTimer) clearTimeout(curveResultTimer);
+                        curveResultMode = 'answer';
+                        showCurveTimeFields(curveResultAnswer);
+                        curveResultTimer = setTimeout(() => { curveResultMode = 'distance'; showCurveDistanceFields(); }, 2000);
+                    });
+
+                    curvePinEl.addEventListener('click', (e) => {
+                        e.stopPropagation();
+                        if (curveResultTimer) clearTimeout(curveResultTimer);
+                        curveResultMode = 'guess';
+                        showCurveTimeFields(curveResultEntry);
+                        curveResultTimer = setTimeout(() => { curveResultMode = 'distance'; showCurveDistanceFields(); }, 2000);
+                    });
+                }
+            }
+
+            const zoomCtrl = document.createElement('div');
+            zoomCtrl.className = 'map-zoom';
+            zoomCtrl.innerHTML = `<button class="map-zoom__btn" data-dir="in">+</button><button class="map-zoom__btn" data-dir="out">&minus;</button>`;
+            containerEl.appendChild(zoomCtrl);
+            zoomCtrl.querySelectorAll('.map-zoom__btn').forEach(btn => {
+                btn.addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    const oldZoom = curveZoom;
+                    if (btn.dataset.dir === 'in') curveZoom = Math.min(curveMaxZoom, curveZoom * 1.5);
+                    else curveZoom = Math.max(1.5, curveZoom / 1.5);
+                    if (curveZoom !== oldZoom) drawCurve();
+                });
+            });
+
+            bindCurveInteraction(containerEl);
+
+            curveResizeHandler = () => resizeCurveCanvas();
+            window.addEventListener('resize', curveResizeHandler);
+
+            containerEl.addEventListener('wheel', (e) => {
+                if (!e.ctrlKey && !e.metaKey) return;
+                e.preventDefault();
+                const oldZoom = curveZoom;
+                if (e.deltaY < 0) curveZoom = Math.min(curveMaxZoom, curveZoom * 1.08);
+                else curveZoom = Math.max(1.5, curveZoom / 1.08);
+                if (curveZoom !== oldZoom) drawCurve();
+            }, { passive: false });
+
+            const isResult = curveReadonly && opts.answerTime && opts.pinTime;
+            setTimeout(() => {
+                resizeCurveCanvas();
+                if (isResult) {
+                    fitCurveToBothPins();
+                    showCurveDistanceFields();
+                    drawCurve();
+                } else {
+                    ensurePinVisible();
+                }
+            }, 100);
+
+            if (!adminDefinedPeriod) {
+                curveNowInterval = setInterval(() => {
+                    curveTimeEnd = nowDecimal();
+                    drawCurve();
+                }, 60000);
+            }
+        }
+
+        function curveCanvasMetrics() {
+            const dpr = window.devicePixelRatio || 1;
+            const w = curveCanvas.width / dpr;
+            const h = curveCanvas.height / dpr;
+            const pad = Math.min(w, h) * 0.08;
+            const scale = Math.min((w - 2 * pad) / 2, (h - 2 * pad)) * curveZoom;
+            return { w, h, scale };
+        }
+
+        function stopCurveAutoPan() {
+            if (curveAutoPanRAF) { cancelAnimationFrame(curveAutoPanRAF); curveAutoPanRAF = null; }
+        }
+
+        function curveAutoPan() {
+            stopCurveAutoPan();
+            const { w, h, scale } = curveCanvasMetrics();
+            const margin = Math.min(w, h) * 0.12;
+            const mx = curveDragScreenX, my = curveDragScreenY;
+            let panX = 0, panY = 0;
+
+            if (mx < margin) panX = -(1 - mx / margin);
+            else if (mx > w - margin) panX = (1 - (w - mx) / margin);
+            if (my < margin) panY = (1 - my / margin);
+            else if (my > h - margin) panY = -(1 - (h - my) / margin);
+
+            if (panX === 0 && panY === 0) return;
+            const speed = 3 / scale;
+
+            function step() {
+                if (!curveDragging) return;
+                curveViewX += panX * speed;
+                curveViewY += panY * speed;
+                const { w: cw, h: ch } = curveCanvasMetrics();
+                const { alpha } = findNearestAlphaLocal(curveDragScreenX, curveDragScreenY, cw, ch, curvePinAlpha);
+                curvePinAlpha = alpha;
+                updateTimeFields();
+                drawCurve();
+                curveAutoPanRAF = requestAnimationFrame(step);
+            }
+            curveAutoPanRAF = requestAnimationFrame(step);
+        }
+
+        function bindCurveInteraction(containerEl) {
+            containerEl.addEventListener('pointerdown', (e) => {
+                if (e.target.closest('.map-zoom') || e.target.closest('.time-field') || e.target.closest('.curve-pin')) return;
+                const rect = curveCanvas.getBoundingClientRect();
+                const mx = e.clientX - rect.left;
+                const my = e.clientY - rect.top;
+                const { w, h } = curveCanvasMetrics();
+
+                if (!curveReadonly) {
+                    if (curvePinAlpha != null) {
+                        const pp = curvePinPoint(curvePinAlpha);
+                        const { sx, sy } = curveToScreen(pp.x, pp.y, w, h, curveZoom, curveViewX, curveViewY);
+                        if (Math.sqrt((mx - sx) ** 2 + (my - sy) ** 2) < 30) {
+                            curveDragging = true;
+                            curveDragScreenX = mx;
+                            curveDragScreenY = my;
+                            containerEl.setPointerCapture(e.pointerId);
+                            curveUserInteracted = true;
+                            containerEl.dispatchEvent(new CustomEvent('curvepin'));
+                            return;
+                        }
+                    }
+
+                    const lineDist = screenDistToCurve(mx, my, w, h);
+                    if (lineDist < 40) {
+                        const { alpha } = findNearestAlpha(mx, my, w, h);
+                        curvePinAlpha = alpha;
+                        curveDragging = true;
+                        curveDragScreenX = mx;
+                        curveDragScreenY = my;
+                        containerEl.setPointerCapture(e.pointerId);
+                        curveUserInteracted = true;
+                        updateTimeFields();
+                        drawCurve();
+                        containerEl.dispatchEvent(new CustomEvent('curvepin'));
+                        return;
+                    }
+                }
+
+                curvePanning = true;
+                curvePanLastX = e.clientX;
+                curvePanLastY = e.clientY;
+                containerEl.classList.add('is-panning');
+                containerEl.setPointerCapture(e.pointerId);
+            });
+
+            containerEl.addEventListener('pointermove', (e) => {
+                if (!curveCanvas) return;
+                if (curvePanning && curvePanLastX != null) {
+                    const { scale } = curveCanvasMetrics();
+                    const dx = e.clientX - curvePanLastX;
+                    const dy = e.clientY - curvePanLastY;
+                    curveViewX -= dx / scale;
+                    curveViewY += dy / scale;
+                    curvePanLastX = e.clientX;
+                    curvePanLastY = e.clientY;
+                    drawCurve();
+                    return;
+                }
+
+                if (curveDragging) {
+                    const rect = curveCanvas.getBoundingClientRect();
+                    curveDragScreenX = e.clientX - rect.left;
+                    curveDragScreenY = e.clientY - rect.top;
+                    const { w, h } = curveCanvasMetrics();
+                    const { alpha } = findNearestAlphaLocal(curveDragScreenX, curveDragScreenY, w, h, curvePinAlpha);
+                    curvePinAlpha = alpha;
+                    updateTimeFields();
+                    drawCurve();
+                    curveAutoPan();
+                    return;
+                }
+
+                const rect = curveCanvas.getBoundingClientRect();
+                const mx = e.clientX - rect.left;
+                const my = e.clientY - rect.top;
+                const { w, h } = curveCanvasMetrics();
+                let cursor = 'grab';
+                if (!curveReadonly) {
+                    if (curvePinAlpha != null) {
+                        const pp = curvePinPoint(curvePinAlpha);
+                        const { sx, sy } = curveToScreen(pp.x, pp.y, w, h, curveZoom, curveViewX, curveViewY);
+                        if (Math.sqrt((mx - sx) ** 2 + (my - sy) ** 2) < 30) cursor = 'move';
+                    }
+                    if (cursor === 'grab') {
+                        if (screenDistToCurve(mx, my, w, h) < 40) cursor = 'crosshair';
+                    }
+                }
+                containerEl.style.cursor = cursor;
+            });
+
+            function stopAll() {
+                const wasDragging = curveDragging;
+                curveDragging = false;
+                curvePanning = false;
+                curvePanLastX = null;
+                curvePanLastY = null;
+                containerEl.classList.remove('is-panning');
+                stopCurveAutoPan();
+                if (wasDragging && !curveReadonly) {
+                    containerEl.dispatchEvent(new CustomEvent('curvepin'));
+                }
+            }
+            containerEl.addEventListener('pointerup', stopAll);
+            containerEl.addEventListener('pointercancel', stopAll);
+
+            containerEl.addEventListener('dblclick', (e) => {
+                if (e.target.closest('.map-zoom') || e.target.closest('.time-field')) return;
+                e.preventDefault();
+                const oldZoom = curveZoom;
+                if (e.shiftKey) curveZoom = Math.max(1.5, curveZoom / 1.5);
+                else curveZoom = Math.min(curveMaxZoom, curveZoom * 1.5);
+                if (curveZoom !== oldZoom) drawCurve();
+            });
+
+            containerEl.setAttribute('tabindex', '0');
+            containerEl.style.outline = 'none';
+            containerEl.addEventListener('keydown', (e) => {
+                if (e.target.closest('.time-field__input')) return;
+                if (e.key === '+' || e.key === '=') {
+                    e.preventDefault();
+                    curveZoom = Math.min(curveMaxZoom, curveZoom * 1.5);
+                    drawCurve();
+                } else if (e.key === '-' || e.key === '_') {
+                    e.preventDefault();
+                    curveZoom = Math.max(1.5, curveZoom / 1.5);
+                    drawCurve();
+                }
+            });
+        }
+
+        function cleanupCurve() {
+            if (curveResizeHandler) { window.removeEventListener('resize', curveResizeHandler); curveResizeHandler = null; }
+            if (curveNowInterval) { clearInterval(curveNowInterval); curveNowInterval = null; }
+            if (curveResultTimer) { clearTimeout(curveResultTimer); curveResultTimer = null; }
+            stopCurveAutoPan();
+            curveCanvas = null; curveCtx = null;
+            curvePinEl = null; curveFieldsEl = null;
+            curveContainer = null;
+            curvePinAlpha = null; curveAnswerAlpha = null;
+            curveZoom = 1; curveDragging = false; curvePanning = false;
+            curveViewX = 0; curveViewY = 0;
+            curvePanLastX = null; curvePanLastY = null;
+            curveTimeStart = -13_800_000_000;
+            curveTimeEnd = 2026;
+            curveMaxZoom = 5e10;
+            curveResultMode = 'distance';
+            curveResultEntry = null;
+            curveResultAnswer = null;
         }
 
         // ── Navigation Model ──
@@ -431,6 +1707,46 @@
 
         // ── Header Builder ──
 
+        function shortenYear(absYear, bc) {
+            if (absYear < 10000) return String(absYear) + (bc ? ' BC' : '');
+            if (absYear < 1_000_000) return parseFloat((absYear / 1000).toFixed(1)) + 'K' + (bc ? ' BC' : '');
+            if (absYear < 1_000_000_000) return parseFloat((absYear / 1_000_000).toFixed(1)) + 'M' + (bc ? ' BC' : '');
+            return parseFloat((absYear / 1_000_000_000).toFixed(1)) + 'B' + (bc ? ' BC' : '');
+        }
+
+        function mysteryStripLabel(mystery) {
+            const MAX_LEN = 25;
+            if (mystery.type === 'time' && mystery.answer) {
+                const a = mystery.answer;
+                const dl = a.detail_level || 'year';
+                const d = formatTimeDisplay(a, dl);
+                const bc = a.bc || a.year < 0;
+                const absYear = Math.abs(a.year);
+
+                let parts = [];
+                if (d.date) parts.push(d.date.replace(/^[A-Za-z]+,\s*/, ''));
+                parts.push(d.year);
+                if (d.time) parts.push(d.time);
+                let text = parts.join(', ');
+
+                if (text.length > MAX_LEN) {
+                    parts = [];
+                    if (d.date) parts.push(d.date.replace(/^[A-Za-z]+,\s*/, ''));
+                    parts.push(shortenYear(absYear, bc));
+                    if (d.time) parts.push(d.time);
+                    text = parts.join(', ');
+                }
+                return text;
+            }
+            if (mystery.answer?.location) {
+                const full = formatLocationLabel(mystery.answer.location);
+                if (full.length <= MAX_LEN) return full;
+                const levels = mystery.answer.location;
+                return levels[levels.length - 1] || full.slice(0, MAX_LEN);
+            }
+            return formatMysteryDate(mystery.reveals_at || mystery.published_at);
+        }
+
         function makeHeader(type, mystery, extraLabel) {
             const titles = { current: 'CURRENT MYSTERY', latest: 'LATEST MYSTERY', past: 'PAST MYSTERY', next: 'NEXT MYSTERY', first: 'FIRST MYSTERY' };
             const canGoOlder = navPos < navItems.length - 1;
@@ -442,8 +1758,8 @@
             } else if (type === 'next' || type === 'first') {
                 labelHTML = `<span class="strip__text" id="countdown">${extraLabel || ''}</span>`;
             } else {
-                const dateStr = formatMysteryDate(mystery.reveals_at || mystery.published_at);
-                labelHTML = `<span class="strip__text">${dateStr}</span>`;
+                const stripLabel = mysteryStripLabel(mystery);
+                labelHTML = `<span class="strip__text">${esc(stripLabel)}</span>`;
             }
 
             return `
@@ -492,7 +1808,7 @@
             if (type === 'next' || type === 'first') {
                 await renderNextView(container, type);
             } else if (type === 'current') {
-                const userGuess = await getUserGuess(mystery.id, userId);
+                const userGuess = isAdminViewer ? null : await getUserGuess(mystery.id, userId);
                 if (userGuess) {
                     await renderSubmittedView(container, mystery, userGuess);
                 } else {
@@ -517,13 +1833,14 @@
         async function renderLiveView(container, mystery) {
             const answer = mystery.answer;
             const guesses = await getGuesses(mystery.id);
+            const isTime = mystery.type === 'time';
 
             container.innerHTML = `
                 <div class="mystery">
                     ${makeHeader('current', mystery)}
                     ${makeImageHTML(mystery, 'Make a guess!')}
                     <div style="position:relative;">
-                        <div class="mystery__map" id="guess-map-container"></div>
+                        <div class="${isTime ? 'time-curve-container' : 'mystery__map'}" id="guess-map-container"></div>
                         <div class="edge-wrapper edge-wrapper--banner edge-wrapper--from-right" style="top:auto;bottom:0;">
                             <div class="banner banner--from-right banner--action banner--disabled"
                                  id="submit-btn" role="button" tabindex="0">
@@ -539,25 +1856,81 @@
             `;
 
             startCountdown(mystery, async () => {
-                const lat = (Math.random() * 180) - 90;
-                const lng = (Math.random() * 360) - 180;
-                try { await submitGuess(mystery.id, lat, lng, answer.lat, answer.lng, mystery.published_at, mystery.reveals_at); } catch { showToast('Auto-guess failed', { type: 'error' }); }
+                if (isAdminViewer) return;
+                const existing = await getUserGuess(mystery.id, userId);
+                if (!existing) {
+                    if (isTime) {
+                        const guessTime = getGuessTimeFromCurve();
+                        if (!guessTime) return;
+                        guessTime.detail_level = answer.detail_level;
+                        const isAutoTime = !curveUserInteracted;
+                        try { await submitTimeGuess(mystery.id, guessTime, answer, mystery.published_at, mystery.reveals_at, { autoGuess: isAutoTime, autoSubmit: !isAutoTime }); } catch {}
+                    } else {
+                        if (guessMarker) {
+                            const ll = guessMarker.getLatLng();
+                            try { await submitGuess(mystery.id, ll.lat, ll.lng, answer.lat, answer.lng, mystery.published_at, mystery.reveals_at, { autoSubmit: true }); } catch {}
+                        } else {
+                            const lat = (Math.random() * 180) - 90;
+                            const lng = (Math.random() * 360) - 180;
+                            try { await submitGuess(mystery.id, lat, lng, answer.lat, answer.lng, mystery.published_at, mystery.reveals_at, { autoGuess: true }); } catch {}
+                        }
+                    }
+                }
+                clearPinStorage(mystery.id);
             });
-            initGuessMap();
+
+            if (isTime) {
+                const mapEl = document.getElementById('guess-map-container');
+                const savedTime = loadPinFromStorage(mystery.id);
+                initInfinityCurve(mapEl, { detailLevel: answer.detail_level, answer, savedAlpha: savedTime?.alpha });
+                mapEl.addEventListener('curvepin', () => {
+                    const submitBtn = document.getElementById('submit-btn');
+                    if (submitBtn) { submitBtn.classList.remove('banner--disabled'); submitBtn.classList.add('banner--pulse'); }
+                    if (curvePinAlpha != null) {
+                        savePinToStorage(mystery.id, { type: 'time', alpha: curvePinAlpha });
+                    }
+                });
+                if (savedTime?.alpha != null) {
+                    const submitBtn = document.getElementById('submit-btn');
+                    if (submitBtn) { submitBtn.classList.remove('banner--disabled'); submitBtn.classList.add('banner--pulse'); }
+                }
+            } else {
+                initGuessMap(mystery.id);
+            }
             if (!guesses.length) startWaitingPlaceholder(mystery.published_at);
 
             const submitBanner = document.getElementById('submit-btn');
             if (submitBanner) {
                 submitBanner.addEventListener('click', async () => {
-                    if (!guessMarker) return;
-                    const ll = guessMarker.getLatLng();
-                    setBannerLoading(submitBanner, true);
-                    try {
-                        await submitGuess(mystery.id, ll.lat, ll.lng, answer.lat, answer.lng, mystery.published_at, mystery.reveals_at);
-                        await renderMysteryAtPosition();
-                    } catch (e) {
-                        showToast('Could not submit guess', { type: 'error' });
-                        setBannerLoading(submitBanner, false);
+                    if (isAdminViewer) {
+                        showToast('Admins cannot participate', { type: 'error' });
+                        return;
+                    }
+                    if (isTime) {
+                        const guessTime = getGuessTimeFromCurve();
+                        if (!guessTime) return;
+                        guessTime.detail_level = answer.detail_level;
+                        setBannerLoading(submitBanner, true);
+                        try {
+                            await submitTimeGuess(mystery.id, guessTime, answer, mystery.published_at, mystery.reveals_at);
+                            clearPinStorage(mystery.id);
+                            await renderMysteryAtPosition();
+                        } catch (e) {
+                            showToast('Could not submit guess', { type: 'error' });
+                            setBannerLoading(submitBanner, false);
+                        }
+                    } else {
+                        if (!guessMarker) return;
+                        const ll = guessMarker.getLatLng();
+                        setBannerLoading(submitBanner, true);
+                        try {
+                            await submitGuess(mystery.id, ll.lat, ll.lng, answer.lat, answer.lng, mystery.published_at, mystery.reveals_at);
+                            clearPinStorage(mystery.id);
+                            await renderMysteryAtPosition();
+                        } catch (e) {
+                            showToast('Could not submit guess', { type: 'error' });
+                            setBannerLoading(submitBanner, false);
+                        }
                     }
                 });
             }
@@ -572,7 +1945,7 @@
             });
         }
 
-        function initGuessMap() {
+        function initGuessMap(mysteryId) {
             const mapEl = document.getElementById('guess-map-container');
             if (!mapEl) return;
             guessMap = L.map(mapEl, mapDefaults).setView([30, 0], 2);
@@ -584,24 +1957,47 @@
             const initial = esc(firstName(profile.name).charAt(0).toUpperCase());
             const guessIcon = L.divIcon({ className: '', html: `<div class="world-pin" style="background:#000;">${initial}</div>`, iconSize: [gPinPx, gPinPx], iconAnchor: [gPinHalf, gPinHalf] });
 
+            function saveGeoPin(latlng) {
+                if (mysteryId) savePinToStorage(mysteryId, { type: 'geo', lat: latlng.lat, lng: latlng.lng });
+            }
+
+            function createGuessMarker(latlng) {
+                guessMarker = L.marker(latlng, { icon: guessIcon, draggable: true }).addTo(guessMap);
+                guessMarker.on('dragend', () => {
+                    const pos = guessMarker.getLatLng();
+                    showPinLabel(guessMap, pos);
+                    saveGeoPin(pos);
+                });
+                guessMarker.on('click', () => {
+                    guessMap.panTo(guessMarker.getLatLng());
+                    showPinLabel(guessMap, guessMarker.getLatLng());
+                });
+            }
+
+            function activateSubmitBtn() {
+                const submitBtn = document.getElementById('submit-btn');
+                if (submitBtn) { submitBtn.classList.remove('banner--disabled'); submitBtn.classList.add('banner--pulse'); }
+            }
+
             guessMarker = null;
+
+            const saved = mysteryId ? loadPinFromStorage(mysteryId) : null;
+            if (saved && saved.type === 'geo' && saved.lat != null && saved.lng != null) {
+                const ll = L.latLng(saved.lat, saved.lng);
+                createGuessMarker(ll);
+                guessMap.setView(ll, 4);
+                activateSubmitBtn();
+            }
+
             guessMap.on('click', (e) => {
                 if (guessMarker) {
                     guessMarker.setLatLng(e.latlng);
                 } else {
-                    guessMarker = L.marker(e.latlng, { icon: guessIcon, draggable: true }).addTo(guessMap);
-                    guessMarker.on('dragend', () => showPinLabel(guessMap, guessMarker.getLatLng()));
-                    guessMarker.on('click', () => {
-                        guessMap.panTo(guessMarker.getLatLng());
-                        showPinLabel(guessMap, guessMarker.getLatLng());
-                    });
+                    createGuessMarker(e.latlng);
                 }
                 showPinLabel(guessMap, e.latlng);
-                const submitBtn = document.getElementById('submit-btn');
-                if (submitBtn) {
-                    submitBtn.classList.remove('banner--disabled');
-                    submitBtn.classList.add('banner--pulse');
-                }
+                saveGeoPin(e.latlng);
+                activateSubmitBtn();
             });
 
             guessMap.on('zoomend', () => {
@@ -657,13 +2053,14 @@
 
         async function renderSubmittedView(container, mystery, userGuess) {
             const guesses = await getGuesses(mystery.id);
+            const isTime = mystery.type === 'time';
 
             container.innerHTML = `
                 <div class="mystery">
                     ${makeHeader('current', mystery)}
                     ${makeImageHTML(mystery, 'Your guess')}
                     <div style="position:relative;">
-                        <div class="mystery__map" id="guess-map-container"></div>
+                        <div class="${isTime ? 'time-curve-container' : 'mystery__map'}" id="guess-map-container"></div>
                         <div class="edge-wrapper edge-wrapper--strip edge-wrapper--from-right" style="top:auto;bottom:0;">
                             <div class="strip strip--from-right"><span class="strip__text">SUBMITTED</span></div>
                         </div>
@@ -676,7 +2073,13 @@
             `;
 
             startCountdown(mystery);
-            initSubmittedMap(userGuess);
+            if (isTime) {
+                const guessTime = userGuess.guess;
+                const mapEl = document.getElementById('guess-map-container');
+                initInfinityCurve(mapEl, { detailLevel: mystery.answer?.detail_level, readonly: true, pinTime: guessTime, answer: mystery.answer });
+            } else {
+                initSubmittedMap(userGuess);
+            }
             if (!guesses.length) startWaitingPlaceholder(mystery.published_at);
 
             activeChannel = subscribeGuesses(mystery.id, (newGuess) => {
@@ -708,7 +2111,12 @@
             submittedPin.on('click', (e) => {
                 L.DomEvent.stopPropagation(e);
                 guessMap.panTo(L.latLng(lat, lng));
-                showPinLabel(guessMap, L.latLng(lat, lng));
+                const guessLoc = userGuess.guess?.location;
+                if (guessLoc && guessLoc.length) {
+                    showPinLabelText(guessMap, L.latLng(lat, lng), formatLocationLabel(guessLoc));
+                } else {
+                    showPinLabel(guessMap, L.latLng(lat, lng));
+                }
             });
 
             guessMap.on('zoomend', () => {
@@ -724,21 +2132,54 @@
 
         async function renderRevealedView(container, mystery, type) {
             const answer = mystery.answer;
+            const isTime = mystery.type === 'time';
+
+            const savedPin = loadPinFromStorage(mystery.id);
+            if (savedPin && !isAdminViewer) {
+                const existingGuess = await getUserGuess(mystery.id, userId);
+                if (existingGuess?.guess?.auto_guess === true) {
+                    try {
+                        if (savedPin.type === 'geo' && !isTime) {
+                            await submitGuess(mystery.id, savedPin.lat, savedPin.lng, answer.lat, answer.lng, mystery.published_at, mystery.reveals_at, { autoSubmit: true });
+                        } else if (savedPin.type === 'time' && isTime && savedPin.alpha != null) {
+                            let tStart, tEnd;
+                            if (answer.period_start && answer.period_end) {
+                                tStart = timeToDecimal(answer.period_start);
+                                tEnd = timeToDecimal(answer.period_end);
+                            } else {
+                                const ansDec = timeToDecimal(answer);
+                                const period = computeCurvePeriod(ansDec);
+                                tEnd = nowDecimal();
+                                tStart = Math.max(-13_800_000_000, tEnd - period);
+                            }
+                            const ea = savedPin.alpha <= 1 ? savedPin.alpha : 2 - savedPin.alpha;
+                            const dec = tStart + ea * (tEnd - tStart);
+                            const guessTime = decimalToTime(dec);
+                            guessTime.detail_level = answer.detail_level;
+                            guessTime.lobe = savedPin.alpha > 1 ? 1 : 0;
+                            await submitTimeGuess(mystery.id, guessTime, answer, mystery.published_at, mystery.reveals_at, { autoSubmit: true });
+                        }
+                    } catch {}
+                }
+                clearPinStorage(mystery.id);
+            }
+
             const leaderboard = await getMysteryLeaderboard(mystery.id, mystery.published_at, mystery.reveals_at);
-            const userEntry = leaderboard.find(e => e.user_id === userId);
+            const userEntry = isAdminViewer ? null : leaderboard.find(e => e.user_id === userId);
             let selectedEntry = userEntry || leaderboard[0] || null;
 
             const resultLabel = !userEntry
-                ? 'NO GUESS'
+                ? (selectedEntry ? `${esc(firstName(selectedEntry.name))}'S RESULT` : 'NO RESULTS')
                 : selectedEntry.user_id === userId ? 'YOUR RESULT' : `${esc(firstName(selectedEntry.name))}'S RESULT`;
-            const scoreText = !userEntry ? 'SCORE: 0' : `SCORE: ${formatNumber(selectedEntry.score)}`;
+            const scoreText = !selectedEntry ? 'SCORE: 0' : `SCORE: ${formatNumber(selectedEntry.score)}`;
+            const distHeader = 'Distance';
 
             container.innerHTML = `
                 <div class="mystery">
                     ${makeHeader(type, mystery)}
                     ${makeImageHTML(mystery, resultLabel, 'result-label')}
                     <div style="position:relative;">
-                        <div class="mystery__map" id="result-map-container"></div>
+                        <div class="${isTime ? 'time-curve-container' : 'mystery__map'}" id="result-map-container"></div>
                         <div class="edge-wrapper edge-wrapper--strip edge-wrapper--from-right" style="top:auto;bottom:0;">
                             <div class="strip strip--from-right"><span class="strip__text" id="score-banner-text">${scoreText}</span></div>
                         </div>
@@ -746,15 +2187,25 @@
                     <div class="mystery__submitted mystery__submitted--revealed" id="results-table">
                         <div class="results-header">
                             <span class="results-header__col results-header__col--time">Time</span>
-                            <span class="results-header__col results-header__col--distance">Distance</span>
+                            <span class="results-header__col results-header__col--distance">${distHeader}</span>
                             <span class="results-header__col results-header__col--score">Score</span>
                         </div>
-                        ${leaderboard.map(e => resultRow(e, selectedEntry)).join('')}
+                        ${leaderboard.map(e => resultRow(e, selectedEntry, isTime, isTime ? answer : null)).join('')}
                     </div>
                 </div>
             `;
 
-            if (answer?.lat != null) {
+            if (isTime) {
+                const mapEl = document.getElementById('result-map-container');
+                const pinTime = selectedEntry?.guess?.year != null ? selectedEntry.guess : null;
+                initInfinityCurve(mapEl, {
+                    detailLevel: answer?.detail_level,
+                    readonly: true,
+                    pinTime,
+                    answerTime: answer,
+                    answer
+                });
+            } else if (answer?.lat != null) {
                 initResultMap(answer, selectedEntry);
             }
 
@@ -763,11 +2214,34 @@
                     const entry = leaderboard.find(e => e.user_id === row.dataset.user);
                     if (!entry) return;
                     selectedEntry = entry;
-                    updateResultView(answer, entry);
+                    if (isTime) {
+                        updateTimeResultView(answer, entry);
+                    } else {
+                        updateResultView(answer, entry);
+                    }
                     const label = document.getElementById('result-label');
                     if (label) label.scrollIntoView({ behavior: 'smooth' });
                 });
             });
+        }
+
+        function updateTimeResultView(answer, entry) {
+            const label = document.getElementById('result-label');
+            if (label) label.textContent = (!isAdminViewer && entry.user_id === userId) ? 'YOUR RESULT' : `${firstName(entry.name)}'S RESULT`;
+            const scoreEl = document.getElementById('score-banner-text');
+            if (scoreEl) scoreEl.textContent = entry?.score != null ? `SCORE: ${formatNumber(entry.score)}` : '';
+            document.querySelectorAll('.mystery__results-row').forEach(row => {
+                row.classList.toggle('mystery__results-row--active', row.dataset.user === entry.user_id);
+            });
+            if (curveResultTimer) { clearTimeout(curveResultTimer); curveResultTimer = null; }
+            curveResultMode = 'distance';
+            if (entry?.guess?.year != null) {
+                curveResultEntry = entry.guess;
+                setCurvePinFromTime(entry.guess);
+                fitCurveToBothPins();
+                showCurveDistanceFields();
+                drawCurve();
+            }
         }
 
         // ── Countdown ──
@@ -895,6 +2369,46 @@
             pinLabelTimer = setTimeout(removePinLabel, 2000);
         }
 
+        function showPinLabelText(map, latlng, text) {
+            removePinLabel();
+            const pinPx = Math.round(px(PIN_VW));
+            const offsetY = pinPx / 2 + Math.round(px(3));
+            pinLabelMarker = L.marker(latlng, {
+                icon: L.divIcon({
+                    className: 'mystery__distance-wrapper',
+                    html: `<div class="mystery__distance-label"><span>${esc(text)}</span></div>`,
+                    iconSize: [0, 0],
+                    iconAnchor: [0, offsetY]
+                }),
+                zIndexOffset: 2000,
+                interactive: false
+            }).addTo(map);
+
+            requestAnimationFrame(() => {
+                const labelEl = pinLabelMarker?.getElement()?.querySelector('.mystery__distance-label');
+                if (!labelEl) return;
+                const labelRect = labelEl.getBoundingClientRect();
+                const mapContainer = map.getContainer();
+                const mapRect = mapContainer.getBoundingClientRect();
+                const pad = 60;
+                let panX = 0, panY = 0;
+                if (labelRect.right + pad > mapRect.right) panX = labelRect.right + pad - mapRect.right;
+                else if (labelRect.left - pad < mapRect.left) panX = labelRect.left - pad - mapRect.left;
+                const parentMystery = mapContainer.closest('.mystery');
+                const topStrip = parentMystery?.querySelector('.mystery-header');
+                const botStrip = parentMystery?.querySelector('.edge-wrapper--strip');
+                const safeTop = topStrip ? topStrip.getBoundingClientRect().bottom + pad : mapRect.top + pad;
+                const safeBot = botStrip ? botStrip.getBoundingClientRect().top - pad : mapRect.bottom - pad;
+                if (labelRect.top < safeTop) panY = labelRect.top - safeTop;
+                const pinPoint = map.latLngToContainerPoint(latlng);
+                const pinBottomAbs = mapRect.top + pinPoint.y + pinPx / 2;
+                if (panY === 0 && pinBottomAbs > safeBot) panY = pinBottomAbs - safeBot;
+                if (panX !== 0 || panY !== 0) map.panBy([panX, panY], { animate: true, duration: 0.15 });
+            });
+
+            pinLabelTimer = setTimeout(removePinLabel, 2000);
+        }
+
         function drawResultPins(answer, entry) {
             if (!resultMap) return;
             lastResultData = { answer, entry };
@@ -994,7 +2508,7 @@
 
         function updateResultView(answer, entry) {
             const label = document.getElementById('result-label');
-            if (label) label.textContent = entry.user_id === userId ? 'YOUR RESULT' : `${firstName(entry.name)}'S RESULT`;
+            if (label) label.textContent = (!isAdminViewer && entry.user_id === userId) ? 'YOUR RESULT' : `${firstName(entry.name)}'S RESULT`;
 
             const scoreEl = document.getElementById('score-banner-text');
             if (scoreEl) scoreEl.textContent = entry?.score != null ? `SCORE: ${formatNumber(entry.score)}` : '';
@@ -1021,64 +2535,552 @@
             removePinLabel();
             lastResultFit = null;
             lastResultData = null;
+            cleanupCurve();
         }
 
-        async function reloadMysteries() {
-            if (!season) return;
-            mysteries = await getSeasonMysteries(season.id);
-            currentMystery = getCurrentMystery(mysteries);
-            revealedMysteries = getRevealedMysteries(mysteries);
+        async function reloadMysteries(opts = {}) {
+            if (!season || isReloading) return;
+            isReloading = true;
+            try {
+                const prevMysteryId = navItems[navPos]?.mystery?.id;
+                const prevType = navItems[navPos]?.type;
 
-            const wasActive = season.active || season.ending;
-            if (wasActive && !currentMystery && revealedMysteries.length) {
-                const ended = await checkSeasonAutoEnd(season.id);
-                if (ended) {
-                    season.active = false;
-                    season.ending = false;
+                mysteries = await getSeasonMysteries(season.id);
+                currentMystery = getCurrentMystery(mysteries);
+                revealedMysteries = getRevealedMysteries(mysteries);
+
+                const wasActive = season.active || season.ending;
+                if (wasActive && !currentMystery && revealedMysteries.length) {
+                    const ended = await checkSeasonAutoEnd(season.id);
+                    if (ended) {
+                        season.active = false;
+                        season.ending = false;
+                    }
+                }
+
+                preloadAllMysteryImages();
+                await buildNavItems();
+
+                if (opts.preserveNav) {
+                    const newCurrentAppeared = currentMystery && prevType !== 'current';
+                    if (!newCurrentAppeared) {
+                        if (prevMysteryId) {
+                            const idx = navItems.findIndex(n => n.mystery?.id === prevMysteryId);
+                            if (idx >= 0) navPos = idx;
+                        } else if (prevType === 'next') {
+                            const idx = navItems.findIndex(n => n.type === 'next');
+                            if (idx >= 0) navPos = idx;
+                        }
+                    }
+                }
+
+                await renderMysteryAtPosition();
+                renderWinners();
+                await renderLeaderboard();
+                await renderPastMysteries();
+                populateStats();
+                updateBottomPadding();
+
+                if (wasActive && !season.active && !currentMystery) {
+                    showToast('Winners ready!');
+                }
+            } finally {
+                isReloading = false;
+            }
+        }
+
+        // ── Past Mysteries World Map + Time Map ──
+
+        let pastViewPos = 0;
+        let pastViewTypes = [];
+        let pastGeoMysteries = [];
+        let pastTimeMysteries = [];
+        let pastTotalCount = 0;
+        let worldTimePanX = 0, worldTimePanY = 0;
+        let worldTimeZoom = 1.5;
+        let worldTimeMaxZoom = 5e10;
+        let worldTimePanning = false, worldTimePanLastX = 0, worldTimePanLastY = 0;
+        let worldTimeLabelTimer = null;
+        let worldTimeLabelPinIdx = -1;
+
+        function removeWorldTimeLabel() {
+            if (worldTimeLabelTimer) { clearTimeout(worldTimeLabelTimer); worldTimeLabelTimer = null; }
+            worldTimeLabelPinIdx = -1;
+            document.querySelectorAll('.world-time-label').forEach(el => el.remove());
+        }
+
+        function updateWorldTimeLabelPos(container, sp) {
+            const label = container.querySelector('.world-time-label');
+            if (!label) return;
+            const pinPx = Math.round(px(PIN_VW));
+            const offsetY = pinPx / 2 + Math.round(px(3));
+            label.style.left = sp.sx + 'px';
+            label.style.top = (sp.sy - offsetY) + 'px';
+        }
+
+        function showWorldTimeLabel(container, x, y, answer, pinIdx) {
+            removeWorldTimeLabel();
+            const display = formatTimeDisplay(answer, answer.detail_level || 'year');
+            let text = display.date ? display.date + ', ' : '';
+            text += display.year;
+            if (display.time) text += ', ' + display.time;
+            const pinPx = Math.round(px(PIN_VW));
+            const offsetY = pinPx / 2 + Math.round(px(3));
+            const label = document.createElement('div');
+            label.className = 'world-time-label mystery__distance-wrapper';
+            label.style.cssText = `position:absolute;left:${x}px;top:${y - offsetY}px;z-index:20;pointer-events:none;`;
+            label.innerHTML = `<div class="mystery__distance-label"><span>${esc(text)}</span></div>`;
+            container.appendChild(label);
+            worldTimeLabelPinIdx = pinIdx;
+
+            requestAnimationFrame(() => {
+                const innerLabel = label.querySelector('.mystery__distance-label');
+                if (!innerLabel) return;
+                const labelRect = innerLabel.getBoundingClientRect();
+                const containerRect = container.getBoundingClientRect();
+                const pad = 60;
+                let shiftPxX = 0, shiftPxY = 0;
+                if (labelRect.right + pad > containerRect.right) shiftPxX = labelRect.right + pad - containerRect.right;
+                else if (labelRect.left - pad < containerRect.left) shiftPxX = labelRect.left - pad - containerRect.left;
+                const parentMystery = container.closest('.mystery');
+                const topStrip = parentMystery?.querySelector('.mystery-header');
+                const botStrip = parentMystery?.querySelector('.edge-wrapper--strip');
+                const safeTop = topStrip ? topStrip.getBoundingClientRect().bottom + pad : containerRect.top + pad;
+                const safeBot = botStrip ? botStrip.getBoundingClientRect().top - pad : containerRect.bottom - pad;
+                if (labelRect.top < safeTop) shiftPxY = labelRect.top - safeTop;
+                const pinBottomAbs = containerRect.top + y + pinPx / 2;
+                if (shiftPxY === 0 && pinBottomAbs > safeBot) shiftPxY = pinBottomAbs - safeBot;
+                if (shiftPxX !== 0 || shiftPxY !== 0) {
+                    const dpr = window.devicePixelRatio || 1;
+                    const w = worldTimeCanvas.width / dpr;
+                    const h = worldTimeCanvas.height / dpr;
+                    const bpad = Math.min(w, h) * 0.08;
+                    const baseScale = Math.min((w - 2 * bpad) / 2, (h - 2 * bpad));
+                    const scale = baseScale * worldTimeZoom;
+                    const targetPanX = worldTimePanX + shiftPxX / scale;
+                    const targetPanY = worldTimePanY - shiftPxY / scale;
+                    const startPanX = worldTimePanX;
+                    const startPanY = worldTimePanY;
+                    const duration = 150;
+                    const startTime = performance.now();
+                    function animatePan(now) {
+                        const t = Math.min(1, (now - startTime) / duration);
+                        const ease = t < 0.5 ? 2 * t * t : 1 - Math.pow(-2 * t + 2, 2) / 2;
+                        worldTimePanX = startPanX + (targetPanX - startPanX) * ease;
+                        worldTimePanY = startPanY + (targetPanY - startPanY) * ease;
+                        drawWorldTimeCurve();
+                        if (t < 1) requestAnimationFrame(animatePan);
+                    }
+                    requestAnimationFrame(animatePan);
+                }
+            });
+
+            worldTimeLabelTimer = setTimeout(removeWorldTimeLabel, 2000);
+        }
+
+        function drawWorldTimeCurve() {
+            if (!worldTimeCanvas || !worldTimeCtx) return;
+            const dpr = window.devicePixelRatio || 1;
+            const container = worldTimeCanvas.parentElement;
+            const rect = container.getBoundingClientRect();
+            worldTimeCanvas.width = rect.width * dpr;
+            worldTimeCanvas.height = rect.height * dpr;
+            worldTimeCanvas.style.width = rect.width + 'px';
+            worldTimeCanvas.style.height = rect.height + 'px';
+            const ctx = worldTimeCtx;
+            ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+            ctx.clearRect(0, 0, rect.width, rect.height);
+
+            const w = rect.width, h = rect.height;
+            const zoom = worldTimeZoom;
+            const vx = worldTimePanX, vy = worldTimePanY;
+            const maxZoom = worldTimeMaxZoom;
+
+            const zoomFrac = Math.log(zoom) / Math.log(maxZoom);
+            const vwScale = w / 800;
+            const spreadPx = (14 + Math.pow(zoomFrac, 0.8) * 284) * vwScale;
+
+            const pad = Math.min(w, h) * 0.08;
+            const baseScale = Math.min((w - 2 * pad) / 2, (h - 2 * pad));
+            const scale = baseScale * zoom;
+            const tileSize = 256 / scale;
+            const tileStartX = Math.floor((vx - w / 2 / scale) / tileSize) * tileSize;
+            const tileStartY = Math.floor((vy - h / 2 / scale) / tileSize) * tileSize;
+            const tileEndX = Math.ceil((vx + w / 2 / scale) / tileSize) * tileSize;
+            const tileEndY = Math.ceil((vy + h / 2 / scale) / tileSize) * tileSize;
+
+            function tileHash(ix, iy) {
+                let h = (ix * 374761393 + iy * 668265263) | 0;
+                h = ((h ^ (h >> 13)) * 1274126177) | 0;
+                return ((h ^ (h >> 16)) & 0x7fffffff) / 0x7fffffff;
+            }
+
+            for (let gx = tileStartX; gx <= tileEndX; gx += tileSize) {
+                for (let gy = tileStartY; gy <= tileEndY; gy += tileSize) {
+                    const sx = w / 2 + (gx - vx) * scale;
+                    const sy = h * CURVE_Y_CENTER - (gy - vy) * scale;
+                    const tw = tileSize * scale;
+                    const th = tileSize * scale;
+                    const v = tileHash(Math.round(gx / tileSize), Math.round(gy / tileSize));
+                    const lum = (v - 0.5) * 0.02;
+                    if (lum > 0) ctx.fillStyle = `rgba(120,180,230,${lum})`;
+                    else ctx.fillStyle = `rgba(0,10,40,${-lum})`;
+                    ctx.fillRect(sx, sy - th, tw, th);
                 }
             }
 
-            preloadAllMysteryImages();
-            await buildNavItems();
-            await renderMysteryAtPosition();
-            renderWinners();
-            await renderLeaderboard();
-            await renderPastMysteries();
-            populateStats();
-            updateBottomPadding();
+            for (let gx = tileStartX; ; gx += tileSize) {
+                const sx = w / 2 + (gx - vx) * scale;
+                if (sx > w + 1) break;
+                if (sx < -1) continue;
+                const lineHash = tileHash(Math.round(gx / tileSize), 99999);
+                ctx.strokeStyle = `rgba(80, 150, 210, ${0.13 + lineHash * 0.09})`;
+                ctx.lineWidth = 0.6 + lineHash * 0.4;
+                ctx.beginPath(); ctx.moveTo(sx, 0); ctx.lineTo(sx, h); ctx.stroke();
+            }
+            for (let gy = tileStartY; ; gy += tileSize) {
+                const sy = h * CURVE_Y_CENTER - (gy - vy) * scale;
+                if (sy < -1) break;
+                if (sy > h + 1) continue;
+                const lineHash = tileHash(99999, Math.round(gy / tileSize));
+                ctx.strokeStyle = `rgba(80, 150, 210, ${0.13 + lineHash * 0.09})`;
+                ctx.lineWidth = 0.6 + lineHash * 0.4;
+                ctx.beginPath(); ctx.moveTo(0, sy); ctx.lineTo(w, sy); ctx.stroke();
+            }
 
-            if (wasActive && !season.active && !currentMystery) {
-                showToast('Winners determined');
+            const pinPosPx = pastTimeMysteries.map(pin => {
+                const t = (3 * Math.PI / 2) + pin.fraction * 2 * Math.PI;
+                const sin2 = Math.sin(t) ** 2;
+                const px2 = Math.cos(t) / (1 + sin2);
+                const py2 = Math.sin(t) * Math.cos(t) / (1 + sin2);
+                return curveToScreen(px2, py2, w, h, zoom, vx, vy);
+            });
+            const pinPosArg = pinPosPx.length ? pinPosPx : null;
+
+            if (zoom <= 2) {
+                const fullPts = [];
+                for (let i = 0; i <= CURVE_DRAW_PTS; i++) {
+                    const frac = i / CURVE_DRAW_PTS;
+                    const t = frac * 2 * Math.PI;
+                    const sin2 = Math.sin(t) ** 2;
+                    fullPts.push({ x: Math.cos(t) / (1 + sin2), y: Math.sin(t) * Math.cos(t) / (1 + sin2), t: frac });
+                }
+                for (let s = 0; s < NUM_STRANDS; s++) {
+                    const seed = s * 137.5;
+                    const screenPts = offsetCurveScreen(fullPts, seed, spreadPx, w, h, zoom, vx, vy, pinPosArg);
+                    ctx.strokeStyle = STREAM_COLORS[s % STREAM_COLORS.length];
+                    const thick = (0.15 + (Math.sin(seed * 1.13) * 0.5 + 0.5) * 1.6 + zoomFrac * 0.7) * vwScale;
+                    ctx.lineWidth = thick;
+                    drawScreenStroke(ctx, screenPts, w);
+                }
+            } else {
+                const SCAN_PTS = 400;
+                let viewA = 0, viewD = Infinity, viewOnLeft = false;
+                for (let i = 0; i <= SCAN_PTS; i++) {
+                    const a = i / SCAN_PTS;
+                    const ptR = curvePointFromAlpha(a);
+                    const dR = (ptR.x - vx) ** 2 + (ptR.y - vy) ** 2;
+                    if (dR < viewD) { viewD = dR; viewA = a; viewOnLeft = false; }
+                    const ptL = leftLobePoint(a);
+                    const dL = (ptL.x - vx) ** 2 + (ptL.y - vy) ** 2;
+                    if (dL < viewD) { viewD = dL; viewA = a; viewOnLeft = true; }
+                }
+                let refMin = Math.max(0, viewA - 1 / SCAN_PTS);
+                let refMax = Math.min(1, viewA + 1 / SCAN_PTS);
+                for (let r = 0; r < 4; r++) {
+                    const step = (refMax - refMin) / 50;
+                    let bestA = viewA, bestD = viewD, bestLeft = viewOnLeft;
+                    for (let i = 0; i <= 50; i++) {
+                        const a = refMin + step * i;
+                        const ptR = curvePointFromAlpha(a);
+                        const dR = (ptR.x - vx) ** 2 + (ptR.y - vy) ** 2;
+                        if (dR < bestD) { bestD = dR; bestA = a; bestLeft = false; }
+                        const ptL = leftLobePoint(a);
+                        const dL = (ptL.x - vx) ** 2 + (ptL.y - vy) ** 2;
+                        if (dL < bestD) { bestD = dL; bestA = a; bestLeft = true; }
+                    }
+                    viewA = bestA; viewD = bestD; viewOnLeft = bestLeft;
+                    refMin = Math.max(0, viewA - step);
+                    refMax = Math.min(1, viewA + step);
+                }
+                const visAlphaHalf = Math.min(1.0, 5 / zoom);
+                const aMin = Math.max(0, viewA - visAlphaHalf);
+                const aMax = Math.min(1, viewA + visAlphaHalf);
+                const primaryFn = viewOnLeft ? leftLobePoint : curvePointFromAlpha;
+                const mirrorFn = viewOnLeft ? curvePointFromAlpha : leftLobePoint;
+                const primaryTBase = viewOnLeft ? 0.5 : 0;
+                const mirrorTBase = viewOnLeft ? 0 : 0.5;
+                const detailPrimary = [];
+                for (let i = 0; i <= CURVE_DRAW_PTS; i++) {
+                    const alpha = aMin + (aMax - aMin) * i / CURVE_DRAW_PTS;
+                    const pt = primaryFn(alpha);
+                    pt.t = primaryTBase + alpha * 0.5;
+                    detailPrimary.push(pt);
+                }
+                const mMin = 1 - aMax, mMax = 1 - aMin;
+                const detailMirror = [];
+                for (let i = 0; i <= CURVE_DRAW_PTS; i++) {
+                    const alpha = mMin + (mMax - mMin) * i / CURVE_DRAW_PTS;
+                    const pt = mirrorFn(alpha);
+                    pt.t = mirrorTBase + alpha * 0.5;
+                    detailMirror.push(pt);
+                }
+                for (let s = 0; s < NUM_STRANDS; s++) {
+                    const seed = s * 137.5;
+                    ctx.strokeStyle = STREAM_COLORS[s % STREAM_COLORS.length];
+                    const thick = (0.15 + (Math.sin(seed * 1.13) * 0.5 + 0.5) * 1.6 + zoomFrac * 0.7) * vwScale;
+                    ctx.lineWidth = thick;
+                    const sP = offsetCurveScreen(detailPrimary, seed, spreadPx, w, h, zoom, vx, vy, pinPosArg);
+                    drawScreenStroke(ctx, sP, w);
+                    const sM = offsetCurveScreen(detailMirror, seed, spreadPx, w, h, zoom, vx, vy, pinPosArg);
+                    drawScreenStroke(ctx, sM, w);
+                }
+            }
+
+            container.querySelectorAll('.world-time-pin').forEach(el => el.remove());
+            pastTimeMysteries.forEach((pin, idx) => {
+                const sp = pinPosPx[idx];
+                const el = document.createElement('div');
+                el.className = 'world-time-pin';
+                el.style.cssText = `position:absolute;left:${sp.sx}px;top:${sp.sy}px;transform:translate(-50%,-50%);z-index:10;cursor:pointer;`;
+                el.innerHTML = `<div class="world-pin">${pin.num}</div>`;
+                el.addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    showWorldTimeLabel(container, sp.sx, sp.sy, pin.answer, idx);
+                });
+                container.appendChild(el);
+            });
+
+            if (worldTimeLabelPinIdx >= 0 && worldTimeLabelPinIdx < pinPosPx.length) {
+                updateWorldTimeLabelPos(container, pinPosPx[worldTimeLabelPinIdx]);
             }
         }
 
-        // ── Past Mysteries World Map ──
+        function renderPastView() {
+            const mapArea = document.getElementById('past-map-area');
+            const stripEl = document.getElementById('past-nav-strip');
+            if (!mapArea || !stripEl) return;
+
+            if (worldMap) { worldMap.remove(); worldMap = null; }
+            worldTimeCanvas = null; worldTimeCtx = null;
+            mapArea.innerHTML = '';
+
+            const viewType = pastViewTypes[pastViewPos];
+            const canGoLeft = pastViewPos > 0;
+            const canGoRight = pastViewPos < pastViewTypes.length - 1;
+            const label = viewType === 'time' ? 'ABOUT TIME, JEFF' : 'JEFF AROUND THE WORLD';
+
+            stripEl.innerHTML = `
+                ${canGoLeft ? '<button class="strip__arrow strip__arrow--left" id="past-nav-prev"></button>' : ''}
+                <span class="strip__text">${label}</span>
+                ${canGoRight ? '<button class="strip__arrow strip__arrow--right" id="past-nav-next"></button>' : ''}`;
+
+            const prevBtn = document.getElementById('past-nav-prev');
+            const nextBtn = document.getElementById('past-nav-next');
+            if (prevBtn) prevBtn.addEventListener('click', () => { pastViewPos--; renderPastView(); });
+            if (nextBtn) nextBtn.addEventListener('click', () => { pastViewPos++; renderPastView(); });
+
+            const countEl = document.getElementById('past-count-strip');
+            if (countEl) {
+                const typeCount = viewType === 'geo' ? pastGeoMysteries.length : pastTimeMysteries.length;
+                countEl.textContent = `${typeCount} DESTINATION${typeCount !== 1 ? 'S' : ''}`;
+            }
+
+            if (viewType === 'geo') {
+                mapArea.innerHTML = `<div class="world-map" id="world-map-container"></div>`;
+                initWorldGeoMap(pastGeoMysteries);
+            } else {
+                mapArea.innerHTML = `<div class="world-time-map" id="world-time-container"><canvas class="world-time-canvas"></canvas></div>`;
+                initWorldTimeCurveView();
+            }
+        }
 
         async function renderPastMysteries() {
             const container = document.getElementById('past-content');
+            if (worldMap) { worldMap.remove(); worldMap = null; }
+            worldTimeCanvas = null; worldTimeCtx = null;
             if (!revealedMysteries.length) { container.innerHTML = ''; return; }
 
-            const locations = revealedMysteries.filter(m => m.answer?.lat != null).reverse();
+            const allRevealed = [...revealedMysteries].reverse();
+            pastGeoMysteries = [];
+            pastTimeMysteries = [];
+            allRevealed.forEach((m, i) => {
+                const num = i + 1;
+                if (m.type === 'time') pastTimeMysteries.push({ ...m, num });
+                else pastGeoMysteries.push({ ...m, num });
+            });
+
+            const hasGeo = pastGeoMysteries.length > 0;
+            const hasTime = pastTimeMysteries.length > 0;
+            pastTotalCount = allRevealed.length;
+
+            pastViewTypes = [];
+            const typeOrder = [];
+            for (const m of allRevealed) {
+                const t = m.type === 'time' ? 'time' : 'geo';
+                if (!typeOrder.includes(t)) typeOrder.push(t);
+            }
+            pastViewTypes = typeOrder;
+            pastViewPos = 0;
+
+            if (hasTime) {
+                const nd = nowDecimal();
+                const answerDecimals = pastTimeMysteries.map(m => {
+                    const dec = timeToDecimal(m.answer);
+                    return { dec, num: m.num, mysteryId: m.id, answer: m.answer, distFromNow: Math.abs(dec - nd) };
+                });
+                answerDecimals.sort((a, b) => a.distFromNow - b.distFromNow);
+                const maxDist = answerDecimals[answerDecimals.length - 1]?.distFromNow || 100;
+                const period = Math.max(100, maxDist * 2);
+                worldTimeMaxZoom = Math.max(10, period);
+                const PIN_START = 0.035, PIN_END = 0.965;
+                if (answerDecimals.length === 1) {
+                    pastTimeMysteries = [{ fraction: PIN_START, num: answerDecimals[0].num, mysteryId: answerDecimals[0].mysteryId, answer: answerDecimals[0].answer }];
+                } else {
+                    const minD = answerDecimals[0].distFromNow;
+                    const maxD = answerDecimals[answerDecimals.length - 1].distFromNow;
+                    const range = maxD - minD;
+                    pastTimeMysteries = answerDecimals.map(item => ({
+                        fraction: range === 0 ? PIN_START : PIN_START + ((item.distFromNow - minD) / range) * (PIN_END - PIN_START),
+                        num: item.num,
+                        mysteryId: item.mysteryId,
+                        answer: item.answer
+                    }));
+                }
+            }
 
             container.innerHTML = `
                 <div class="mystery" style="width: var(--card-width);">
-                    <div class="mystery-header">
+                    <div class="mystery-header" style="pointer-events:none;">
                         <div class="banner banner--top banner--from-right">
                             <span class="banner__text">Past Mysteries</span>
                         </div>
                         <div class="mystery-header__card">
-                            <div class="strip strip--from-right"><span class="strip__text">THE MANY TRAVELS OF JEFF</span></div>
+                            <div class="strip strip--from-right" id="past-nav-strip" style="pointer-events:auto;"></div>
                         </div>
                     </div>
                     <div style="position:relative;">
-                        <div class="world-map" id="world-map-container"></div>
-                        <div class="edge-wrapper edge-wrapper--strip edge-wrapper--from-left" style="top:auto;bottom:0;transform:none;">
-                            <div class="strip strip--from-left"><span class="strip__text">${locations.length} DESTINATION${locations.length !== 1 ? 'S' : ''}</span></div>
+                        <div id="past-map-area"></div>
+                        <div class="edge-wrapper edge-wrapper--strip edge-wrapper--from-left" style="top:auto;bottom:0;transform:none;pointer-events:none;">
+                            <div class="strip strip--from-left"><span class="strip__text" id="past-count-strip"></span></div>
                         </div>
                     </div>
                 </div>
             `;
 
+            renderPastView();
+        }
+
+        function initWorldTimeCurveView() {
+            const containerEl = document.getElementById('world-time-container');
+            if (!containerEl) return;
+            worldTimeCanvas = containerEl.querySelector('.world-time-canvas');
+            worldTimeCtx = worldTimeCanvas.getContext('2d');
+            worldTimePanX = 0;
+            worldTimePanY = 0;
+
+            if (pastTimeMysteries.length <= 1) {
+                worldTimeZoom = 2.5;
+            } else {
+                const pinCurveCoords = pastTimeMysteries.map(pin => {
+                    const t = (3 * Math.PI / 2) + pin.fraction * 2 * Math.PI;
+                    const sin2 = Math.sin(t) ** 2;
+                    return { x: Math.cos(t) / (1 + sin2), y: Math.sin(t) * Math.cos(t) / (1 + sin2) };
+                });
+                let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+                for (const p of pinCurveCoords) {
+                    if (p.x < minX) minX = p.x;
+                    if (p.x > maxX) maxX = p.x;
+                    if (p.y < minY) minY = p.y;
+                    if (p.y > maxY) maxY = p.y;
+                }
+                const rect = containerEl.getBoundingClientRect();
+                const w = rect.width, h = rect.height;
+                const viewPad = Math.min(w, h) * 0.08;
+                const baseScale = Math.min((w - 2 * viewPad) / 2, (h - 2 * viewPad));
+                const fitPad = Math.min(w, h) * 0.2;
+                const spanX = (maxX - minX) || 0.1;
+                const spanY = (maxY - minY) || 0.1;
+                const zoomX = (w - 2 * fitPad) / (spanX * baseScale);
+                const zoomY = (h - 2 * fitPad) / (spanY * baseScale);
+                worldTimeZoom = Math.max(1.5, Math.min(Math.min(zoomX, zoomY), worldTimeMaxZoom));
+                worldTimePanX = (minX + maxX) / 2;
+                worldTimePanY = (minY + maxY) / 2;
+            }
+
+            let wtDragged = false, wtStartX = 0, wtStartY = 0, wtPointerId = -1;
+            containerEl.addEventListener('pointerdown', (e) => {
+                worldTimePanning = true;
+                wtDragged = false;
+                wtPointerId = e.pointerId;
+                wtStartX = e.clientX;
+                wtStartY = e.clientY;
+                worldTimePanLastX = e.clientX;
+                worldTimePanLastY = e.clientY;
+            });
+            containerEl.addEventListener('pointermove', (e) => {
+                if (!worldTimePanning) return;
+                const movedX = e.clientX - wtStartX;
+                const movedY = e.clientY - wtStartY;
+                if (!wtDragged && movedX * movedX + movedY * movedY > 25) {
+                    wtDragged = true;
+                    containerEl.setPointerCapture(wtPointerId);
+                    containerEl.style.cursor = 'grabbing';
+                }
+                if (!wtDragged) return;
+                const dpr = window.devicePixelRatio || 1;
+                const w = worldTimeCanvas.width / dpr;
+                const h = worldTimeCanvas.height / dpr;
+                const pad = Math.min(w, h) * 0.08;
+                const baseScale = Math.min((w - 2 * pad) / 2, (h - 2 * pad));
+                const scale = baseScale * worldTimeZoom;
+                const dx = e.clientX - worldTimePanLastX;
+                const dy = e.clientY - worldTimePanLastY;
+                worldTimePanX -= dx / scale;
+                worldTimePanY += dy / scale;
+                worldTimePanLastX = e.clientX;
+                worldTimePanLastY = e.clientY;
+                drawWorldTimeCurve();
+            });
+            containerEl.addEventListener('pointerup', () => {
+                worldTimePanning = false;
+                containerEl.style.cursor = 'grab';
+            });
+            containerEl.addEventListener('pointercancel', () => {
+                worldTimePanning = false;
+                containerEl.style.cursor = 'grab';
+            });
+            containerEl.style.cursor = 'grab';
+            containerEl.style.touchAction = 'none';
+
+            containerEl.addEventListener('wheel', (e) => {
+                if (!e.ctrlKey && !e.metaKey) return;
+                e.preventDefault();
+                const oldZ = worldTimeZoom;
+                if (e.deltaY < 0) worldTimeZoom = Math.min(worldTimeMaxZoom, worldTimeZoom * 1.08);
+                else worldTimeZoom = Math.max(1.5, worldTimeZoom / 1.08);
+                if (worldTimeZoom !== oldZ) drawWorldTimeCurve();
+            }, { passive: false });
+
+            const ctrl = document.createElement('div');
+            ctrl.className = 'map-zoom map-zoom--top-left';
+            ctrl.innerHTML = `<button class="map-zoom__btn" data-dir="in">+</button><button class="map-zoom__btn" data-dir="out">&minus;</button>`;
+            containerEl.appendChild(ctrl);
+            ctrl.addEventListener('pointerdown', (e) => e.stopPropagation());
+            ctrl.querySelectorAll('.map-zoom__btn').forEach(btn => {
+                btn.addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    const oldZ = worldTimeZoom;
+                    if (btn.dataset.dir === 'in') worldTimeZoom = Math.min(worldTimeMaxZoom, worldTimeZoom * 1.5);
+                    else worldTimeZoom = Math.max(1.5, worldTimeZoom / 1.5);
+                    if (worldTimeZoom !== oldZ) drawWorldTimeCurve();
+                });
+            });
+
+            drawWorldTimeCurve();
+        }
+
+        function initWorldGeoMap(geoMysteries) {
             const mapEl = document.getElementById('world-map-container');
             if (!mapEl) return;
             worldMap = L.map(mapEl, mapDefaults).setView([20, 0], 2);
@@ -1086,7 +3088,7 @@
             addTileLayer(worldMap);
             addMapTint(mapEl);
 
-            const rawPoints = locations.map(m => [m.answer.lat, m.answer.lng]);
+            const rawPoints = geoMysteries.map(m => [m.answer.lat, m.answer.lng]);
             const points = [rawPoints[0]];
             for (let i = 1; i < rawPoints.length; i++) {
                 let lng = rawPoints[i][1];
@@ -1110,26 +3112,21 @@
 
             const wPinPx = Math.round(px(PIN_VW));
             const wPinH = wPinPx / 2;
-            locations.forEach((m, i) => {
-                const num = i + 1;
+            geoMysteries.forEach((m, i) => {
                 const pinIcon = L.divIcon({
                     className: '',
-                    html: `<div class="world-pin">${num}</div>`,
+                    html: `<div class="world-pin">${m.num}</div>`,
                     iconSize: [wPinPx, wPinPx],
                     iconAnchor: [wPinH, wPinH]
                 });
                 const marker = L.marker(points[i], { icon: pinIcon, zIndexOffset: 500 }).addTo(worldMap);
                 marker.on('click', () => {
-                    const idx = navItems.findIndex(item => item.mystery?.id === m.id);
-                    if (idx >= 0) {
-                        navPos = idx;
-                        renderMysteryAtPosition();
-                        const el = document.getElementById('mystery-section');
-                        el.style.scrollMarginTop = 'calc(var(--section-gap) / 2)';
-                        el.scrollIntoView({ behavior: 'smooth' });
-                    }
+                    const loc = m.answer?.location ? formatLocationLabel(m.answer.location) : 'Unknown';
+                    showPinLabelText(worldMap, L.latLng(points[i][0], points[i][1]), loc);
                 });
             });
+
+            addWorldZoomControls(worldMap, mapEl);
 
             lastWorldFit = dataBounds;
             function fitWorldMap() {
@@ -1154,22 +3151,13 @@
         async function renderWinners() {
             const section = document.getElementById('winners-section');
             const container = document.getElementById('winners-content');
-            const testMode = new URLSearchParams(window.location.search).has('test_winners');
-
-            if (!testMode && (!season || season.active || currentMystery)) {
+            if (!season || season.active || currentMystery) {
                 section.style.display = 'none';
                 container.innerHTML = '';
                 return;
             }
 
-            let winners;
-            if (testMode) {
-                winners = season && !season.active
-                    ? await getSeasonWinners(season.id)
-                    : { score: { name: 'Karl-Erik', value: 15273 }, wins: { name: 'Malou', value: 8, total: 12 }, karma: { name: 'Vilde', value: 22192 } };
-            } else {
-                winners = await getSeasonWinners(season.id);
-            }
+            const winners = await getSeasonWinners(season.id);
             if (!winners) {
                 section.style.display = 'none';
                 container.innerHTML = '';
@@ -1246,9 +3234,9 @@
                 </div>
             `;
 
-            const seenKey = `wheff_winners_seen_${season?.id || 'test'}`;
+            const seenKey = `wheff_winners_seen_${season.id}`;
             const alreadySeen = localStorage.getItem(seenKey);
-            if (!alreadySeen || testMode) {
+            if (!alreadySeen) {
                 document.querySelector('.winners-body')?.classList.add('animating');
                 await waitForVisible(section);
                 await animateWinners();
@@ -1311,7 +3299,7 @@
             if (!body) return;
 
             const categories = body.querySelectorAll('.winners-category');
-            await wait(1500);
+            await wait(750);
 
             for (const cat of categories) {
                 const fromLeft = !cat.classList.contains('winners-category--right');
@@ -1321,17 +3309,17 @@
                 const valueWrap = fromLeft ? anims[2] : anims[1];
 
                 if (stripWrap) stripWrap.classList.add('revealed');
-                await wait(3000);
+                await wait(1500);
 
                 if (bannerWrap) {
                     bannerWrap.classList.add('revealed');
                     const banner = cat.querySelector('.winners-banner--name');
                     if (banner) fireConfetti(banner, fromLeft);
                 }
-                await wait(1000);
+                await wait(500);
 
                 if (valueWrap) valueWrap.classList.add('revealed');
-                await wait(3500);
+                await wait(1750);
             }
 
             startConfettiLoop();
@@ -1414,6 +3402,21 @@
             pane.appendChild(tint);
         }
 
+        function addWorldZoomControls(map, mapEl) {
+            const ctrl = document.createElement('div');
+            ctrl.className = 'map-zoom map-zoom--top-left';
+            ctrl.innerHTML = `<button class="map-zoom__btn" data-dir="in">+</button><button class="map-zoom__btn" data-dir="out">&minus;</button>`;
+            mapEl.appendChild(ctrl);
+            L.DomEvent.disableClickPropagation(ctrl);
+            L.DomEvent.disableScrollPropagation(ctrl);
+            ctrl.querySelectorAll('.map-zoom__btn').forEach(btn => {
+                btn.addEventListener('click', () => {
+                    if (btn.dataset.dir === 'in') map.zoomIn();
+                    else map.zoomOut();
+                });
+            });
+        }
+
         function addZoomControls(map, mapEl) {
             const ctrl = document.createElement('div');
             ctrl.className = 'map-zoom';
@@ -1431,14 +3434,22 @@
 
         // ── HTML Helpers ──
 
-        function resultRow(entry, selectedEntry) {
+        function resultRow(entry, selectedEntry, isTime = false, answer = null) {
             const isActive = entry.user_id === selectedEntry?.user_id;
+            let distText;
+            if (isTime && answer && entry.guess?.year != null) {
+                const yearsDiff = effectiveTimeDiff(entry.guess, answer);
+                distText = formatTimeDifferenceShort(yearsDiff);
+            } else {
+                distText = isTime ? formatTimeDifferenceShort(entry.distance_m) : formatDistanceShort(entry.distance_m);
+            }
+            const diceIcon = entry.is_auto ? `<span class="dice-icon">${DICE_SVG}</span>` : '';
             return `
                 <div class="mystery__submitted-row mystery__results-row ${isActive ? 'mystery__results-row--active' : ''}" data-user="${entry.user_id}">
                     <div class="results-strip">
                         <div class="submitted-strip__bg"></div>
                         <span class="results-strip__col results-strip__col--time">${entry.time}</span>
-                        <span class="results-strip__col results-strip__col--distance">${formatDistanceShort(entry.distance_m)}</span>
+                        <span class="results-strip__col results-strip__col--distance">${distText}${diceIcon}</span>
                         <span class="results-strip__col results-strip__col--score">${formatNumber(entry.score)}</span>
                     </div>
                     <span class="mystery__submitted-name">${esc(firstName(entry.name))}</span>
@@ -1473,9 +3484,7 @@
 
         function submittedRow(guess, publishedAt, revealsAt, isNew = false) {
             const name = esc(firstName(guess.profiles?.name));
-            const isAuto = revealsAt && new Date(guess.submitted_at) >= new Date(revealsAt);
-            const t = formatTimeAgo(guess.submitted_at, publishedAt);
-            const time = isAuto ? `${t} (A)` : t;
+            const time = formatTimeAgo(guess.submitted_at, publishedAt);
             return `
                 <div class="mystery__submitted-row ${isNew ? 'mystery__submitted-row--new' : ''}" data-user="${guess.user_id}">
                     <div class="submitted-strip">

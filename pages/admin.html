@@ -68,7 +68,7 @@
                             <label class="form-label">Type</label>
                             <select class="form-input" id="mystery-type" style="max-width:200px">
                                 <option value="location">Location</option>
-                                <option value="time" disabled>Time (coming soon)</option>
+                                <option value="time">Time</option>
                                 <option value="film" disabled>Film/TV (coming soon)</option>
                                 <option value="cyber" disabled>Cyberspace (coming soon)</option>
                             </select>
@@ -84,10 +84,129 @@
                                 <img id="upload-preview-img" alt="Preview">
                             </div>
                         </div>
-                        <div class="form-group" style="margin-bottom:18px">
+                        <div class="form-group" style="margin-bottom:18px" id="location-answer-group">
                             <label class="form-label">Answer location (click map)</label>
                             <div class="map-picker" id="answer-map"></div>
                             <div class="map-picker__coords" id="answer-coords">No location selected</div>
+                        </div>
+                        <div class="form-group" style="margin-bottom:18px;display:none" id="time-answer-group">
+                            <label class="form-label" style="display:block;margin-bottom:12px">Answer time</label>
+                            <div style="display:flex;gap:12px;align-items:center;margin-bottom:10px;flex-wrap:wrap">
+                                <label class="form-label" style="margin:0;min-width:80px">Detail level</label>
+                                <select class="form-input" id="time-detail-level" style="max-width:160px">
+                                    <option value="year">Year</option>
+                                    <option value="month">Month</option>
+                                    <option value="day">Day</option>
+                                    <option value="minute">Minute</option>
+                                </select>
+                            </div>
+                            <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+                                <div style="display:flex;align-items:center;gap:6px">
+                                    <label class="form-label" style="margin:0;white-space:nowrap">Year</label>
+                                    <input class="form-input" type="number" id="time-year" style="width:140px" placeholder="e.g. 1969">
+                                    <label style="display:flex;align-items:center;gap:4px;font-size:13px;cursor:pointer">
+                                        <input type="checkbox" id="time-bc"> BC
+                                    </label>
+                                </div>
+                                <div id="time-month-wrap" style="display:none;align-items:center;gap:6px">
+                                    <label class="form-label" style="margin:0">Month</label>
+                                    <select class="form-input" id="time-month" style="width:130px">
+                                        <option value="1">January</option><option value="2">February</option>
+                                        <option value="3">March</option><option value="4">April</option>
+                                        <option value="5">May</option><option value="6">June</option>
+                                        <option value="7">July</option><option value="8">August</option>
+                                        <option value="9">September</option><option value="10">October</option>
+                                        <option value="11">November</option><option value="12">December</option>
+                                    </select>
+                                </div>
+                                <div id="time-day-wrap" style="display:none;align-items:center;gap:6px">
+                                    <label class="form-label" style="margin:0">Day</label>
+                                    <input class="form-input" type="number" id="time-day" style="width:70px" min="1" max="31" placeholder="1">
+                                </div>
+                                <div id="time-hm-wrap" style="display:none;align-items:center;gap:6px">
+                                    <label class="form-label" style="margin:0">Time</label>
+                                    <input class="form-input" type="number" id="time-hour" style="width:60px" min="0" max="23" placeholder="0">
+                                    <span style="font-weight:700">:</span>
+                                    <input class="form-input" type="number" id="time-minute" style="width:60px" min="0" max="59" placeholder="0">
+                                </div>
+                            </div>
+                            <div style="margin-top:18px;padding-top:14px;border-top:1px solid rgba(0,0,0,0.08)">
+                                <label class="form-label" style="display:block;margin-bottom:16px">Guess period</label>
+                                <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:8px">
+                                    <div style="display:flex;align-items:center;gap:6px">
+                                        <label class="form-label" style="margin:0;white-space:nowrap">Year</label>
+                                        <input class="form-input" type="number" id="period-start-year" style="width:140px" placeholder="e.g. 500">
+                                        <label style="display:flex;align-items:center;gap:4px;font-size:13px;cursor:pointer">
+                                            <input type="checkbox" id="period-start-bc"> BC
+                                        </label>
+                                    </div>
+                                    <div id="period-start-month-wrap" style="display:none;align-items:center;gap:6px">
+                                        <label class="form-label" style="margin:0">Month</label>
+                                        <select class="form-input" id="period-start-month" style="width:130px">
+                                            <option value="1">January</option><option value="2">February</option>
+                                            <option value="3">March</option><option value="4">April</option>
+                                            <option value="5">May</option><option value="6">June</option>
+                                            <option value="7">July</option><option value="8">August</option>
+                                            <option value="9">September</option><option value="10">October</option>
+                                            <option value="11">November</option><option value="12">December</option>
+                                        </select>
+                                    </div>
+                                    <div id="period-start-day-wrap" style="display:none;align-items:center;gap:6px">
+                                        <label class="form-label" style="margin:0">Day</label>
+                                        <input class="form-input" type="number" id="period-start-day" style="width:70px" min="1" max="31" placeholder="1">
+                                    </div>
+                                    <div id="period-start-hm-wrap" style="display:none;align-items:center;gap:6px">
+                                        <label class="form-label" style="margin:0">Time</label>
+                                        <input class="form-input" type="number" id="period-start-hour" style="width:60px" min="0" max="23" placeholder="0">
+                                        <span style="font-weight:700">:</span>
+                                        <input class="form-input" type="number" id="period-start-minute" style="width:60px" min="0" max="59" placeholder="0">
+                                    </div>
+                                </div>
+                                <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:4px;font-size:12px;color:var(--admin-text-secondary);padding-left:2px">to</div>
+                                <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+                                    <div style="display:flex;align-items:center;gap:6px">
+                                        <label class="form-label" style="margin:0;white-space:nowrap">Year</label>
+                                        <input class="form-input" type="number" id="period-end-year" style="width:140px" placeholder="e.g. 2026">
+                                        <label style="display:flex;align-items:center;gap:4px;font-size:13px;cursor:pointer">
+                                            <input type="checkbox" id="period-end-bc"> BC
+                                        </label>
+                                    </div>
+                                    <div id="period-end-month-wrap" style="display:none;align-items:center;gap:6px">
+                                        <label class="form-label" style="margin:0">Month</label>
+                                        <select class="form-input" id="period-end-month" style="width:130px">
+                                            <option value="1">January</option><option value="2">February</option>
+                                            <option value="3">March</option><option value="4">April</option>
+                                            <option value="5">May</option><option value="6">June</option>
+                                            <option value="7">July</option><option value="8">August</option>
+                                            <option value="9">September</option><option value="10">October</option>
+                                            <option value="11">November</option><option value="12">December</option>
+                                        </select>
+                                    </div>
+                                    <div id="period-end-day-wrap" style="display:none;align-items:center;gap:6px">
+                                        <label class="form-label" style="margin:0">Day</label>
+                                        <input class="form-input" type="number" id="period-end-day" style="width:70px" min="1" max="31" placeholder="1">
+                                    </div>
+                                    <div id="period-end-hm-wrap" style="display:none;align-items:center;gap:6px">
+                                        <label class="form-label" style="margin:0">Time</label>
+                                        <input class="form-input" type="number" id="period-end-hour" style="width:60px" min="0" max="23" placeholder="0">
+                                        <span style="font-weight:700">:</span>
+                                        <input class="form-input" type="number" id="period-end-minute" style="width:60px" min="0" max="59" placeholder="0">
+                                    </div>
+                                    <button type="button" class="btn btn--plain" id="btn-period-end-now" style="padding:4px 10px;font-size:12px;white-space:nowrap">Now</button>
+                                </div>
+                            </div>
+                            <div style="display:flex;gap:10px;align-items:center;margin-top:12px;flex-wrap:wrap">
+                                <label class="form-label" style="margin:0;white-space:nowrap">Range ±</label>
+                                <input class="form-input" type="number" id="time-range" style="width:100px" min="0" placeholder="0">
+                                <select class="form-input" id="time-range-unit-select" style="max-width:120px">
+                                    <option value="year">years</option>
+                                    <option value="month">months</option>
+                                    <option value="day">days</option>
+                                    <option value="hour">hours</option>
+                                    <option value="minute">minutes</option>
+                                </select>
+                            </div>
+                            <div class="map-picker__coords" id="time-preview" style="margin-top:8px">No time selected</div>
                         </div>
                     </div>
                     <div class="card__footer">
@@ -124,7 +243,7 @@
 <script type="module">
 import { requireAuth, getProfile, validateName } from '../lib/auth.js';
 import * as api from '../lib/admin.js';
-import { checkSeasonAutoEnd } from '../lib/game.js';
+import { checkSeasonAutoEnd, formatTimeTitle, timeToDecimal, decimalToTime, computeTimePeriod } from '../lib/game.js';
 import { showToast } from '../lib/toast.js';
 
 function setButtonLoading(btn, loading) {
@@ -347,7 +466,7 @@ function wireWaitingImageUploads() {
 function renderSeasonMysteriesTable(mysteries) {
     if (!mysteries.length) return '<div class="card__body"><div class="empty-state" style="padding:16px 0">No mysteries in this game. Click "+ Add mystery" above.</div></div>';
     return `<table class="admin-table">
-        <thead><tr><th style="width:30px"></th><th>Place</th><th>Status</th><th>Publish</th><th>Reveal</th><th></th></tr></thead>
+        <thead><tr><th style="width:30px"></th><th>Location</th><th>Status</th><th>Publish</th><th>Reveal</th><th></th></tr></thead>
         <tbody>${mysteries.map(m => {
             const st = api.mysteryStatus(m);
             const locked = st === 'live' || st === 'revealed';
@@ -366,7 +485,10 @@ function renderSeasonMysteriesTable(mysteries) {
         }).join('')}</tbody></table>`;
 }
 
+let schedStartInterval = null;
+
 async function openSeasonDetail(id) {
+    if (schedStartInterval) { clearInterval(schedStartInterval); schedStartInterval = null; }
     seasonsList.style.display = 'none';
     seasonDetail.style.display = 'block';
     try {
@@ -426,7 +548,6 @@ async function openSeasonDetail(id) {
                                 ${available.map(u => `<option value="${u.id}">${esc(u.name || u.email)}</option>`).join('')}
                             </select>
                         </div>
-                        <button class="btn btn--primary btn--small" id="btn-add-member">Add</button>
                     </div>
                     <div class="form-row" style="margin-bottom:16px">
                         <div class="form-group" style="flex:1">
@@ -465,7 +586,7 @@ async function openSeasonDetail(id) {
                     <div class="form-row">
                         <div class="form-group" style="flex:1">
                             <label class="form-label">Start time</label>
-                            <input class="form-input" type="datetime-local" id="sched-start" value="${mysteries.length ? api.toDatetimeLocal(season.starts_at) : api.toDatetimeLocal(new Date().toISOString())}">
+                            <input class="form-input" type="datetime-local" id="sched-start" value="${mysteries.length ? api.toDatetimeLocal(season.starts_at) : (() => { const n = new Date(); n.setSeconds(0,0); n.setMinutes(n.getMinutes()+1); return api.toDatetimeLocal(n.toISOString()); })()}" min="${(() => { const n = new Date(); n.setSeconds(0,0); n.setMinutes(n.getMinutes()+1); return api.toDatetimeLocal(n.toISOString()); })()}">
                         </div>
                         <div class="form-group" style="flex:0.6">
                             <label class="form-label">Frequency</label>
@@ -520,10 +641,13 @@ async function openSeasonDetail(id) {
                 gap_value: config.gap_value,
                 gap_unit: config.gap_unit
             });
+            season.frequency_value = config.frequency_value;
+            season.frequency_unit = config.frequency_unit;
         }
 
         async function recalcAndSave() {
             const config = getScheduleConfig();
+            if (!config.frequency_value || !season.frequency_value) return;
             const fresh = await api.getMysteriesBySeason(id);
             const scheduled = api.computeSchedule(fresh, config);
             await api.batchUpdateTimings(scheduled.map(m => ({
@@ -552,16 +676,31 @@ async function openSeasonDetail(id) {
             if (gapMs >= freqMs) {
                 return showToast('Gap must be shorter than frequency', { type: 'error' });
             }
-            const nowFloor = new Date();
-            nowFloor.setSeconds(0, 0);
-            if (new Date(config.starts_at) < nowFloor) {
-                return showToast('Start time cannot be in the past', { type: 'error' });
+            const minStart = new Date();
+            minStart.setSeconds(0, 0);
+            minStart.setMinutes(minStart.getMinutes() + 1);
+            if (new Date(config.starts_at) < minStart) {
+                return showToast('Start time must be at least 1 minute from now', { type: 'error' });
             }
             await saveScheduleConfig();
             await recalcAndSave();
             document.getElementById('btn-save-schedule').textContent = 'Update';
             showToast('Schedule saved');
         });
+
+        let schedStartUserEdited = !!season.frequency_value;
+        const schedStartInput = document.getElementById('sched-start');
+        if (schedStartInput) {
+            schedStartInput.addEventListener('input', () => { schedStartUserEdited = true; });
+            schedStartInterval = setInterval(() => {
+                if (schedStartUserEdited) return;
+                const next = new Date();
+                next.setSeconds(0, 0);
+                next.setMinutes(next.getMinutes() + 1);
+                schedStartInput.value = api.toDatetimeLocal(next.toISOString());
+                schedStartInput.min = api.toDatetimeLocal(next.toISOString());
+            }, 10000);
+        }
 
         seasonDetail.querySelector('#btn-add-mystery')?.addEventListener('click', async () => {
             const [allMysteries, currentMysteries] = await Promise.all([api.getMysteries(), api.getMysteriesBySeason(id)]);
@@ -592,16 +731,11 @@ async function openSeasonDetail(id) {
                         if (startInput) startInput.value = api.toDatetimeLocal(new Date().toISOString());
                     }
                     await api.addMysteryToSeason(id, item.dataset.tid);
-                    const config = getScheduleConfig();
-                    if (config.frequency_value && config.gap_value != null && config.starts_at) {
-                        await recalcAndSave();
-                    } else {
-                        const updated = await api.getMysteriesBySeason(id);
-                        document.getElementById('season-mysteries-table').innerHTML = renderSeasonMysteriesTable(updated);
-                        const titleEl = seasonDetail.querySelector('#season-mysteries-table')?.closest('.card')?.querySelector('.card__title');
-                        if (titleEl) titleEl.textContent = `Mysteries (${updated.length})`;
-                        wireMysteriesTable(id, season);
-                    }
+                    const updated = await api.getMysteriesBySeason(id);
+                    document.getElementById('season-mysteries-table').innerHTML = renderSeasonMysteriesTable(updated);
+                    const titleEl = seasonDetail.querySelector('#season-mysteries-table')?.closest('.card')?.querySelector('.card__title');
+                    if (titleEl) titleEl.textContent = `Mysteries (${updated.length})`;
+                    wireMysteriesTable(id, season);
                     showToast('Mystery added');
                 });
             });
@@ -821,7 +955,7 @@ async function openSeasonDetail(id) {
                 { label: 'End game', cls: 'btn--danger', fn: async () => { await api.endSeason(id); showToast('Game ended'); openSeasonDetail(id); } }
             ]);
         });
-        seasonDetail.querySelector('#btn-add-member')?.addEventListener('click', async () => {
+        seasonDetail.querySelector('#add-member-select')?.addEventListener('change', async () => {
             const sel = document.getElementById('add-member-select');
             if (sel.value) { await api.addSeasonMember(id, sel.value); showToast('Member added'); openSeasonDetail(id); }
         });
@@ -933,6 +1067,170 @@ function initMysteryForm() {
     });
 }
 
+// ── Type switching (location vs time) ──
+
+function updateMysteryTypeUI() {
+    const type = document.getElementById('mystery-type').value;
+    document.getElementById('location-answer-group').style.display = type === 'location' ? '' : 'none';
+    document.getElementById('time-answer-group').style.display = type === 'time' ? '' : 'none';
+    if (type === 'time') updateTimeFieldVisibility();
+}
+
+function updateTimeFieldVisibility() {
+    const dl = document.getElementById('time-detail-level').value;
+    const showMonth = dl === 'month' || dl === 'day' || dl === 'minute';
+    const showDay = dl === 'day' || dl === 'minute';
+    const showHM = dl === 'minute';
+    document.getElementById('time-month-wrap').style.display = showMonth ? 'flex' : 'none';
+    document.getElementById('time-day-wrap').style.display = showDay ? 'flex' : 'none';
+    document.getElementById('time-hm-wrap').style.display = showHM ? 'flex' : 'none';
+    for (const prefix of ['period-start', 'period-end']) {
+        document.getElementById(`${prefix}-month-wrap`).style.display = showMonth ? 'flex' : 'none';
+        document.getElementById(`${prefix}-day-wrap`).style.display = showDay ? 'flex' : 'none';
+        document.getElementById(`${prefix}-hm-wrap`).style.display = showHM ? 'flex' : 'none';
+    }
+    updateTimePreview();
+}
+
+function autoFillPeriod() {
+    if (periodManuallyEdited) return;
+    const ans = getTimeAnswerFromForm();
+    if (!ans) return;
+    const ansDec = timeToDecimal(ans);
+    const period = computeTimePeriod(ansDec);
+    const BIG_BANG = -13_800_000_000;
+    const now = new Date();
+    const y = now.getFullYear();
+    const soy = new Date(y, 0, 1);
+    const eoy = new Date(y + 1, 0, 1);
+    const nowDec = y + (now - soy) / (eoy - soy);
+    const earliestStart = Math.max(BIG_BANG, ansDec - period);
+    const latestStart = Math.min(nowDec - period, ansDec);
+    const frac = Math.random();
+    const startDec = Math.max(BIG_BANG, earliestStart + frac * (latestStart - earliestStart));
+    const endDec = Math.min(nowDec, startDec + period);
+    fillPeriodFields('period-start', decimalToTime(startDec), ans.detail_level);
+    fillPeriodFields('period-end', decimalToTime(endDec), ans.detail_level);
+}
+
+function fillPeriodFields(prefix, t, dl) {
+    document.getElementById(`${prefix}-year`).value = Math.abs(t.year);
+    document.getElementById(`${prefix}-bc`).checked = t.bc || t.year < 0;
+    if (dl === 'month' || dl === 'day' || dl === 'minute') document.getElementById(`${prefix}-month`).value = t.month || 1;
+    if (dl === 'day' || dl === 'minute') document.getElementById(`${prefix}-day`).value = t.day || 1;
+    if (dl === 'minute') {
+        document.getElementById(`${prefix}-hour`).value = t.hour || 0;
+        document.getElementById(`${prefix}-minute`).value = t.minute || 0;
+    }
+}
+
+function readPeriodFields(prefix, dl) {
+    const yearVal = document.getElementById(`${prefix}-year`).value;
+    if (!yearVal && yearVal !== '0') return null;
+    const bc = document.getElementById(`${prefix}-bc`).checked;
+    const obj = { year: Number(yearVal), bc };
+    if (bc && obj.year > 0) obj.year = -obj.year;
+    if (dl === 'month' || dl === 'day' || dl === 'minute') obj.month = Number(document.getElementById(`${prefix}-month`).value) || 1;
+    if (dl === 'day' || dl === 'minute') obj.day = Number(document.getElementById(`${prefix}-day`).value) || 1;
+    if (dl === 'minute') {
+        obj.hour = Number(document.getElementById(`${prefix}-hour`).value) || 0;
+        obj.minute = Number(document.getElementById(`${prefix}-minute`).value) || 0;
+    }
+    return obj;
+}
+
+function clearPeriodFields(prefix) {
+    document.getElementById(`${prefix}-year`).value = '';
+    document.getElementById(`${prefix}-bc`).checked = false;
+    document.getElementById(`${prefix}-month`).value = '1';
+    document.getElementById(`${prefix}-day`).value = '';
+    document.getElementById(`${prefix}-hour`).value = '';
+    document.getElementById(`${prefix}-minute`).value = '';
+}
+
+function getTimeAnswerFromForm() {
+    const dl = document.getElementById('time-detail-level').value;
+    const yearVal = document.getElementById('time-year').value;
+    if (!yearVal && yearVal !== '0') return null;
+    const bc = document.getElementById('time-bc').checked;
+    const ans = { year: Number(yearVal), bc, detail_level: dl };
+    if (bc && ans.year > 0) ans.year = -ans.year;
+    if (dl === 'month' || dl === 'day' || dl === 'minute') ans.month = Number(document.getElementById('time-month').value) || 1;
+    if (dl === 'day' || dl === 'minute') ans.day = Number(document.getElementById('time-day').value) || 1;
+    if (dl === 'minute') {
+        ans.hour = Number(document.getElementById('time-hour').value) || 0;
+        ans.minute = Number(document.getElementById('time-minute').value) || 0;
+    }
+    const rangeVal = Number(document.getElementById('time-range').value);
+    if (rangeVal > 0) {
+        ans.range = rangeVal;
+        ans.range_unit = document.getElementById('time-range-unit-select').value;
+    }
+    const ps = readPeriodFields('period-start', dl);
+    const pe = readPeriodFields('period-end', dl);
+    if (ps) ans.period_start = ps;
+    if (pe) ans.period_end = pe;
+    return ans;
+}
+
+function formatRangeValue(n) {
+    if (n >= 1_000_000_000) return `${parseFloat((n / 1_000_000_000).toFixed(1))}B`;
+    if (n >= 1_000_000) return `${parseFloat((n / 1_000_000).toFixed(1))}M`;
+    if (n >= 10_000) return `${parseFloat((n / 1_000).toFixed(1))}K`;
+    return String(n);
+}
+
+function updateTimePreview() {
+    const ans = getTimeAnswerFromForm();
+    const el = document.getElementById('time-preview');
+    if (!ans) { el.textContent = 'No time selected'; return; }
+    let text = formatTimeTitle(ans);
+    if (ans.range > 0) {
+        const rangeUnitVal = document.getElementById('time-range-unit-select').value;
+        const unitMap = { year: 'years', month: 'months', day: 'days', hour: 'hours', minute: 'minutes' };
+        text += ` (± ${formatRangeValue(ans.range)} ${unitMap[rangeUnitVal] || 'years'})`;
+    }
+    if (ans.period_start && ans.period_end) {
+        text += ` | Period: ${formatTimeTitle(ans.period_start)} → ${formatTimeTitle(ans.period_end)}`;
+    }
+    el.textContent = text;
+}
+
+document.getElementById('mystery-type').addEventListener('change', updateMysteryTypeUI);
+document.getElementById('time-detail-level').addEventListener('change', updateTimeFieldVisibility);
+['time-year', 'time-bc', 'time-month', 'time-day', 'time-hour', 'time-minute', 'time-range', 'time-range-unit-select'].forEach(id => {
+    const el = document.getElementById(id);
+    if (el) el.addEventListener('input', updateTimePreview);
+    if (el) el.addEventListener('change', updateTimePreview);
+});
+['time-year', 'time-bc', 'time-month', 'time-day', 'time-hour', 'time-minute', 'time-detail-level'].forEach(id => {
+    const el = document.getElementById(id);
+    if (el) el.addEventListener('change', autoFillPeriod);
+});
+const periodFieldIds = [
+    'period-start-year', 'period-start-bc', 'period-start-month', 'period-start-day', 'period-start-hour', 'period-start-minute',
+    'period-end-year', 'period-end-bc', 'period-end-month', 'period-end-day', 'period-end-hour', 'period-end-minute'
+];
+periodFieldIds.forEach(id => {
+    const el = document.getElementById(id);
+    if (el) el.addEventListener('input', () => { periodManuallyEdited = true; updateTimePreview(); });
+    if (el) el.addEventListener('change', () => { periodManuallyEdited = true; updateTimePreview(); });
+});
+document.getElementById('btn-period-end-now').addEventListener('click', () => {
+    periodManuallyEdited = true;
+    const dl = document.getElementById('time-detail-level').value;
+    const now = new Date();
+    document.getElementById('period-end-year').value = now.getFullYear();
+    document.getElementById('period-end-bc').checked = false;
+    if (dl === 'month' || dl === 'day' || dl === 'minute') document.getElementById('period-end-month').value = now.getMonth() + 1;
+    if (dl === 'day' || dl === 'minute') document.getElementById('period-end-day').value = now.getDate();
+    if (dl === 'minute') {
+        document.getElementById('period-end-hour').value = now.getHours();
+        document.getElementById('period-end-minute').value = now.getMinutes();
+    }
+    updateTimePreview();
+});
+
 const uploadZone = document.getElementById('upload-zone');
 const fileInput = document.getElementById('mystery-image-file');
 const uploadPreview = document.getElementById('upload-preview');
@@ -941,6 +1239,7 @@ const previewImg = document.getElementById('upload-preview-img');
 wireDragDrop(uploadZone, fileInput, handleFile);
 
 let pendingFile = null;
+let periodManuallyEdited = false;
 let pendingDimensions = null;
 const MAX_IMAGE_DIM = 1920;
 
@@ -1005,6 +1304,20 @@ function resetMysteryForm() {
     pendingDimensions = null;
     if (answerMarker) { answerMap.removeLayer(answerMarker); answerMarker = null; }
     document.getElementById('answer-coords').textContent = 'No location selected';
+    document.getElementById('time-detail-level').value = 'year';
+    document.getElementById('time-year').value = '';
+    document.getElementById('time-bc').checked = false;
+    document.getElementById('time-month').value = '1';
+    document.getElementById('time-day').value = '';
+    document.getElementById('time-hour').value = '';
+    document.getElementById('time-minute').value = '';
+    document.getElementById('time-range').value = '';
+    document.getElementById('time-range-unit-select').value = 'year';
+    clearPeriodFields('period-start');
+    clearPeriodFields('period-end');
+    periodManuallyEdited = false;
+    document.getElementById('time-preview').textContent = 'No time selected';
+    updateMysteryTypeUI();
 }
 
 function editTemplate(template) {
@@ -1014,7 +1327,7 @@ function editTemplate(template) {
     document.getElementById('mystery-image-url').value = m.image_url || '';
     resolvedLocationName = m.title || 'Unknown';
     resolvedLocationLevels = m.answer?.location || [];
-    document.getElementById('mystery-type').value = m.type;
+    document.getElementById('mystery-type').value = m.type || 'location';
     document.getElementById('mystery-form-title').textContent = 'Edit mystery';
     document.getElementById('btn-cancel-mystery').style.display = 'inline-flex';
     document.getElementById('btn-save-mystery').textContent = 'Update mystery';
@@ -1026,7 +1339,23 @@ function editTemplate(template) {
         uploadPreview.style.display = 'none';
     }
     if (answerMarker) { answerMap.removeLayer(answerMarker); answerMarker = null; }
-    if (m.answer?.lat != null) {
+    if (m.type === 'time' && m.answer?.year != null) {
+        const a = m.answer;
+        document.getElementById('time-detail-level').value = a.detail_level || 'year';
+        document.getElementById('time-year').value = Math.abs(a.year);
+        document.getElementById('time-bc').checked = a.bc || a.year < 0;
+        if (a.month) document.getElementById('time-month').value = a.month;
+        if (a.day) document.getElementById('time-day').value = a.day;
+        if (a.hour != null) document.getElementById('time-hour').value = a.hour;
+        if (a.minute != null) document.getElementById('time-minute').value = a.minute;
+        document.getElementById('time-range').value = a.range || '';
+        document.getElementById('time-range-unit-select').value = a.range_unit || a.detail_level || 'year';
+        if (a.period_start) fillPeriodFields('period-start', a.period_start, a.detail_level);
+        else clearPeriodFields('period-start');
+        if (a.period_end) fillPeriodFields('period-end', a.period_end, a.detail_level);
+        else clearPeriodFields('period-end');
+        periodManuallyEdited = !!(a.period_start || a.period_end);
+    } else if (m.answer?.lat != null) {
         const latlng = L.latLng(m.answer.lat, m.answer.lng);
         answerMarker = L.marker(latlng).addTo(answerMap);
         answerMap.setView(latlng, 8);
@@ -1034,6 +1363,7 @@ function editTemplate(template) {
     } else {
         document.getElementById('answer-coords').textContent = 'No location selected';
     }
+    updateMysteryTypeUI();
     document.getElementById('mystery-form-card').scrollIntoView({ behavior: 'smooth' });
 }
 
@@ -1042,7 +1372,6 @@ document.getElementById('btn-cancel-mystery').addEventListener('click', resetMys
 document.getElementById('btn-save-mystery').addEventListener('click', async () => {
     const saveBtn = document.getElementById('btn-save-mystery');
     const editTemplateId = document.getElementById('mystery-edit-template-id').value;
-    const title = resolvedLocationName || 'Unknown';
     const type = document.getElementById('mystery-type').value;
 
     setButtonLoading(saveBtn, true);
@@ -1053,9 +1382,31 @@ document.getElementById('btn-save-mystery').addEventListener('click', async () =
         catch (err) { setButtonLoading(saveBtn, false); return showToast('Image upload failed: ' + err.message, { type: 'error' }); }
     }
 
-    const answer = answerMarker
-        ? { lat: answerMarker.getLatLng().lat, lng: answerMarker.getLatLng().lng, location: resolvedLocationLevels }
-        : {};
+    let answer, title;
+    if (type === 'time') {
+        answer = getTimeAnswerFromForm();
+        if (!answer) { setButtonLoading(saveBtn, false); return showToast('Please enter a year', { type: 'error' }); }
+        const now = new Date();
+        const currentYear = now.getFullYear();
+        const absYear = Math.abs(answer.year);
+        if (absYear > 13_800_000_000) { setButtonLoading(saveBtn, false); return showToast('Year cannot exceed 13.8 billion', { type: 'error' }); }
+        if (!answer.bc && answer.year > currentYear) { setButtonLoading(saveBtn, false); return showToast('Year cannot be in the future', { type: 'error' }); }
+        if (answer.period_start && answer.period_end) {
+            const psDec = timeToDecimal(answer.period_start);
+            const peDec = timeToDecimal(answer.period_end);
+            const ansDec = timeToDecimal(answer);
+            if (psDec >= peDec) { setButtonLoading(saveBtn, false); return showToast('Period start must be before period end', { type: 'error' }); }
+            if (ansDec < psDec || ansDec > peDec) { setButtonLoading(saveBtn, false); return showToast('Answer must be within the period', { type: 'error' }); }
+        } else if (answer.period_start || answer.period_end) {
+            setButtonLoading(saveBtn, false); return showToast('Both period start and end must be set', { type: 'error' });
+        }
+        title = formatTimeTitle(answer);
+    } else {
+        title = resolvedLocationName || 'Unknown';
+        answer = answerMarker
+            ? { lat: answerMarker.getLatLng().lat, lng: answerMarker.getLatLng().lng, location: resolvedLocationLevels }
+            : {};
+    }
 
     const content = { title, type, image_url: imageUrl || null, answer };
     if (pendingDimensions) {
@@ -1086,7 +1437,7 @@ async function renderMysteries() {
         const templates = api.groupByTemplate(mysteries);
         mysteriesList.innerHTML = `<div class="card"><table class="admin-table">
             <thead><tr>
-                <th>Place</th><th>Games</th><th></th>
+                <th>Location</th><th>Games</th><th></th>
             </tr></thead>
             <tbody>${templates.map(t => {
                 const gameInstances = t.instances.filter(i => i.season_id);
