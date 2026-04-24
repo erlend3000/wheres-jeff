@@ -291,7 +291,7 @@
 
                     if (loginFailCount >= 2) {
                         loginFailCount = 0;
-                        const action = await showModal({
+                        showModal({
                             label: 'Jeff says',
                             text: 'Having trouble remembering your password?',
                             buttons: [

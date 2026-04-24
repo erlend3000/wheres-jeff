@@ -1135,7 +1135,6 @@
             }
         }
 
-        const MONTHS_SHORT = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
 
         function getEditValueForField(fieldType) {
             if (curvePinAlpha == null) return '';
@@ -2709,7 +2708,6 @@
         let pastViewTypes = [];
         let pastGeoMysteries = [];
         let pastTimeMysteries = [];
-        let pastTotalCount = 0;
         let worldTimePanX = 0, worldTimePanY = 0;
         let worldTimeZoom = 1.5;
         let worldTimeMaxZoom = 5e10;
@@ -3028,7 +3026,7 @@
 
             const hasGeo = pastGeoMysteries.length > 0;
             const hasTime = pastTimeMysteries.length > 0;
-            pastTotalCount = allRevealed.length;
+
 
             pastViewTypes = [];
             const typeOrder = [];
