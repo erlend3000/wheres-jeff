@@ -77,16 +77,17 @@
         const _params = new URLSearchParams(window.location.search);
         const _tokenHash = _params.get('token_hash');
         const _type = _params.get('type');
+        let _handled = false;
         if (_tokenHash && (_type === 'signup' || _type === 'email')) {
             try {
                 await supabase.auth.verifyOtp({ token_hash: _tokenHash, type: _type });
                 try { localStorage.setItem('wheff-verify-done', Date.now().toString()); } catch {};
                 window.location.href = '/pages/game.html';
-                return;
+                _handled = true;
             } catch {}
         }
 
-        await redirectIfLoggedIn();
+        if (!_handled) await redirectIfLoggedIn();
         await Promise.all([
             document.fonts.load('700 1em Jost'),
             document.fonts.load('900 1em Jost'),
