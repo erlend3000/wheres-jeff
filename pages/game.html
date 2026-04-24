@@ -91,7 +91,21 @@
             timeToDecimal, decimalToTime, timeYearsDiff, formatTimeDifference, formatTimeDifferenceShort,
             formatTimeDisplay
         } from '../lib/game.js';
+        import { supabase } from '../lib/supabase.js';
         import { showToast } from '../lib/toast.js';
+
+        // ── Handle email verification token (signup) ──
+        {
+            const p = new URLSearchParams(window.location.search);
+            const th = p.get('token_hash'), tp = p.get('type');
+            if (th && (tp === 'signup' || tp === 'email')) {
+                try {
+                    await supabase.auth.verifyOtp({ token_hash: th, type: tp });
+                    try { localStorage.setItem('wheff-verify-done', Date.now().toString()); } catch {};
+                } catch {}
+                history.replaceState(null, '', window.location.pathname);
+            }
+        }
 
         // ── Auth ──
 
