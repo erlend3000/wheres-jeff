@@ -69,7 +69,7 @@
     </script>
 
     <script type="module">
-        import { signUp, signIn, redirectIfLoggedIn, validateName, friendlyError } from '../lib/auth.js';
+        import { signUp, signIn, resetPassword, redirectIfLoggedIn, validateName, friendlyError } from '../lib/auth.js';
         import { supabase } from '../lib/supabase.js';
         import { showModal, hideModal } from '../lib/modal.js';
         import { showToast } from '../lib/toast.js';
@@ -104,10 +104,12 @@
         };
 
         let emailFromStep1 = '';
+        let loginFailCount = 0;
 
         function showStep(name) {
             Object.values(steps).forEach(s => s.classList.remove('active'));
             steps[name].classList.add('active');
+            if (name === 'welcome') loginFailCount = 0;
         }
 
         document.getElementById('scroll-down').addEventListener('click', () => {
@@ -281,10 +283,70 @@
                 setBannerLoading(goBtn, true);
                 try {
                     await signIn(data.email, data.password);
+                    loginFailCount = 0;
                     window.location.href = '/pages/game.html';
                 } catch (err) {
                     setBannerLoading(goBtn, false);
-                    showToast(friendlyError(err), { type: 'error' });
+                    loginFailCount++;
+
+                    if (loginFailCount >= 2) {
+                        loginFailCount = 0;
+                        const action = await showModal({
+                            label: 'Jeff says',
+                            text: 'Having trouble remembering your password?',
+                            buttons: [
+                                { text: 'No', action: 'no', dismiss: true },
+                                { text: 'Yes', action: 'yes', dismiss: false }
+                            ],
+                            onAction: async (act, { setText }) => {
+                                if (act !== 'yes') return;
+                                const modal = document.querySelector('.modal');
+                                const btnWrap = modal?.querySelector('.modal__buttons');
+                                if (btnWrap) { modal.classList.remove('modal--has-buttons'); btnWrap.remove(); }
+
+                                try {
+                                    await resetPassword(data.email);
+                                    setText('Check your email and click the link');
+
+                                    function showResendButton() {
+                                        const m = document.querySelector('.modal');
+                                        if (!m) return;
+                                        m.classList.add('modal--has-buttons');
+                                        const wrap = document.createElement('div');
+                                        wrap.className = 'modal__buttons';
+                                        wrap.innerHTML = '<button class="modal__btn"><span class="modal__btn-text">Resend</span></button>';
+                                        m.appendChild(wrap);
+                                        wrap.querySelector('.modal__btn').addEventListener('click', async () => {
+                                            const textEl = m.querySelector('.modal__text');
+                                            try {
+                                                await resetPassword(data.email);
+                                                textEl.textContent = 'Email sent';
+                                            } catch { textEl.textContent = 'Please wait a moment'; }
+                                            m.classList.remove('modal--has-buttons');
+                                            wrap.remove();
+                                            setTimeout(() => { textEl.textContent = 'Check your email and click the link'; }, 2000);
+                                            setTimeout(showResendButton, 60000);
+                                        });
+                                    }
+                                    setTimeout(showResendButton, 60000);
+
+                                    const pollInterval = setInterval(async () => {
+                                        const { data: { session } } = await supabase.auth.getSession();
+                                        if (session) {
+                                            clearInterval(pollInterval);
+                                            hideModal();
+                                            window.location.href = '/pages/game.html';
+                                        }
+                                    }, 3000);
+                                } catch (resetErr) {
+                                    setText(friendlyError(resetErr));
+                                    setTimeout(hideModal, 3000);
+                                }
+                            }
+                        });
+                    } else {
+                        showToast(friendlyError(err), { type: 'error' });
+                    }
                 }
                 return;
             }

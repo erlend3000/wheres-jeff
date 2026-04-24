@@ -140,6 +140,7 @@
         const DICE_SVG = `<svg xmlns="http://www.w3.org/2000/svg" width="0.85em" height="0.85em" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-0.08em"><rect width="12" height="12" x="2" y="10" rx="2" ry="2"/><path d="m17.92 14 3.5-3.5a2.24 2.24 0 0 0 0-3l-5-4.92a2.24 2.24 0 0 0-3 0L10 6"/><path d="M6 18h.01"/><path d="M10 14h.01"/><path d="M15 6h.01"/><path d="M18 9h.01"/></svg>`;
         let lastResultData = null;
         let cachedLeaderboard = null;
+        let leaderboardSort = 'score';
         let confettiInterval = null;
         let pendingRevealConfetti = false;
 
@@ -3473,6 +3474,42 @@
 
         // ── Leaderboard ──
 
+        function sortLeaderboard(board, mode) {
+            if (mode === 'wins') return [...board].sort((a, b) => b.wins - a.wins || b.total_score - a.total_score);
+            if (mode === 'karma') return [...board].sort((a, b) => b.jeff_karma - a.jeff_karma || b.total_score - a.total_score);
+            return [...board].sort((a, b) => b.total_score - a.total_score);
+        }
+
+        function leaderboardTrend(entry, mode) {
+            if (mode === 'wins') return entry.trend_wins ?? entry.trend;
+            if (mode === 'karma') return entry.trend_karma ?? entry.trend;
+            return entry.trend_score ?? entry.trend;
+        }
+
+        function renderLeaderboardRows(container) {
+            const board = cachedLeaderboard;
+            if (!board?.length) return;
+            const sorted = sortLeaderboard(board, leaderboardSort);
+            const rowsEl = container.querySelector('.leaderboard-rows');
+            if (!rowsEl) return;
+            rowsEl.innerHTML = sorted.map((entry, i) => `
+                <div class="mystery__submitted-row">
+                    <span class="mystery__submitted-name">${esc(firstName(entry.name))}</span>
+                    <div class="results-strip results-strip--leaderboard">
+                        <div class="submitted-strip__bg"></div>
+                        <span class="results-strip__col results-strip__col--pos">${i + 1}</span>
+                        <span class="results-strip__col results-strip__col--score">${formatNumber(entry.total_score)}</span>
+                        <span class="results-strip__col results-strip__col--wins">${entry.wins}</span>
+                        <span class="results-strip__col results-strip__col--karma">${entry.jeff_karma > 0 ? '+' : ''}${formatNumber(entry.jeff_karma)}</span>
+                        <span class="results-strip__col results-strip__col--trend">${leaderboardTrend(entry, leaderboardSort)}</span>
+                    </div>
+                </div>`).join('');
+
+            container.querySelectorAll('.results-header__col--sortable').forEach(col => {
+                col.classList.toggle('results-header__col--active', col.dataset.sort === leaderboardSort);
+            });
+        }
+
         async function renderLeaderboard() {
             const container = document.getElementById('leaderboard-content');
             if (!season) { container.innerHTML = ''; return; }
@@ -3494,24 +3531,24 @@
                     <div class="mystery__submitted mystery__submitted--leaderboard">
                         <div class="results-header results-header--leaderboard">
                             <span class="results-header__col results-header__col--pos">Rank</span>
-                            <span class="results-header__col results-header__col--score">Score</span>
-                            <span class="results-header__col results-header__col--wins">Wins</span>
+                            <span class="results-header__col results-header__col--score results-header__col--sortable results-header__col--active" data-sort="score">Score</span>
+                            <span class="results-header__col results-header__col--wins results-header__col--sortable" data-sort="wins">Wins</span>
+                            <span class="results-header__col results-header__col--karma results-header__col--sortable" data-sort="karma">Karma</span>
                             <span class="results-header__col results-header__col--trend">Trend</span>
                         </div>
-                        ${board.map((entry, i) => `
-                        <div class="mystery__submitted-row">
-                            <span class="mystery__submitted-name">${esc(firstName(entry.name))}</span>
-                            <div class="results-strip results-strip--leaderboard">
-                                <div class="submitted-strip__bg"></div>
-                                <span class="results-strip__col results-strip__col--pos">${i + 1}</span>
-                                <span class="results-strip__col results-strip__col--score">${formatNumber(entry.total_score)}</span>
-                                <span class="results-strip__col results-strip__col--wins">${entry.wins}</span>
-                                <span class="results-strip__col results-strip__col--trend">${entry.trend}</span>
-                            </div>
-                        </div>`).join('')}
+                        <div class="leaderboard-rows"></div>
                     </div>
                 </div>
             `;
+
+            renderLeaderboardRows(container);
+
+            container.querySelectorAll('.results-header__col--sortable').forEach(col => {
+                col.addEventListener('click', () => {
+                    leaderboardSort = col.dataset.sort;
+                    renderLeaderboardRows(container);
+                });
+            });
         }
 
         // ── Stats ──

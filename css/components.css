@@ -716,6 +716,7 @@ wheff-card:not(.card-wrapper) {
 .dice-icon { position: absolute; left: 100%; margin-left: 0.5em; top: 50%; transform: translateY(-50%); }
 .results-strip__col--pos      { width: 5vw; }
 .results-strip__col--wins     { width: 8vw; }
+.results-strip__col--karma    { width: 10vw; }
 .results-strip__col--trend    { width: 8vw; font-style: normal; }
 
 /* Leaderboard variant — mirrored (strips from right) */
@@ -733,25 +734,48 @@ wheff-card:not(.card-wrapper) {
 }
 
 .results-strip--leaderboard {
-    width: 58vw;
+    width: 63vw;
     padding-left: calc(var(--banner-padding-far) * 0.69);
-    padding-right: 4vw;
+    padding-right: 3vw;
 }
 
 .results-header--leaderboard {
     margin-left: auto;
     padding-left: calc(var(--banner-padding-far) * 0.69);
-    padding-right: 4vw;
-    width: 58vw;
+    padding-right: 3vw;
+    width: 63vw;
     box-sizing: border-box;
 }
 
 .results-header--leaderboard .results-header__col { text-align: left; }
-.results-strip--leaderboard .results-strip__col   { text-align: left; }
-.results-header--leaderboard .results-header__col--pos   { width: 9vw; }
-.results-strip--leaderboard .results-strip__col--pos     { width: 9vw; }
-.results-header--leaderboard .results-header__col--score { width: 14vw; }
-.results-strip--leaderboard .results-strip__col--score   { width: 14vw; }
+.results-strip--leaderboard .results-strip__col   { text-align: left; padding-left: 0.2vw; }
+.results-header--leaderboard .results-header__col--pos   { width: 3vw; }
+.results-strip--leaderboard .results-strip__col--pos     { width: 3vw; }
+.results-header--leaderboard .results-header__col--score { width: 7vw; }
+.results-strip--leaderboard .results-strip__col--score   { width: 7vw; }
+.results-header--leaderboard .results-header__col--wins  { width: 3vw; }
+.results-strip--leaderboard .results-strip__col--wins    { width: 3vw; }
+.results-header--leaderboard .results-header__col--karma { width: 9vw; }
+.results-strip--leaderboard .results-strip__col--karma   { width: 9vw; }
+.results-header--leaderboard .results-header__col--trend { width: 6vw; }
+.results-strip--leaderboard .results-strip__col--trend   { width: 6vw; }
+
+.results-header__col--sortable {
+    cursor: pointer;
+    text-decoration: underline transparent;
+    text-decoration-thickness: 0.15em;
+    text-underline-offset: 0.2em;
+    transition: text-decoration-color 0.15s;
+}
+.results-header__col--sortable.results-header__col--active {
+    text-decoration-color: currentColor;
+}
+.results-header--leaderboard:hover .results-header__col--active:not(:hover) {
+    text-decoration-color: transparent;
+}
+.results-header__col--sortable:hover {
+    text-decoration-color: currentColor;
+}
 
 .mystery__results-row {
     cursor: pointer;

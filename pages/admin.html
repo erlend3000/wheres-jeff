@@ -1513,7 +1513,6 @@ async function renderUsers() {
                 <td class="actions">
                     <button class="btn btn--plain btn--small btn-rename-user" data-id="${u.id}" data-name="${esc(u.name || '')}">Rename</button>
                     <button class="btn btn--danger btn--small btn-del-user" data-id="${u.id}" data-name="${esc(u.name || u.email)}">Delete</button>
-                    <button class="btn btn--plain btn--small btn--disabled" title="Coming later">Reset PW</button>
                 </td>
             </tr>`).join('')}</tbody></table></div>`;
         usersList.querySelectorAll('.btn-rename-user').forEach(btn => {
