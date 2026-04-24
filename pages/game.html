@@ -428,7 +428,7 @@
 
             await buildNavItems();
             await renderMysteryAtPosition();
-            await renderWinners();
+            renderWinners();
             await renderLeaderboard();
             await renderPastMysteries();
             populateStats();
@@ -2662,7 +2662,7 @@
                 }
 
                 await renderMysteryAtPosition();
-                await renderWinners();
+                renderWinners();
                 await renderLeaderboard();
                 await renderPastMysteries();
                 populateStats();

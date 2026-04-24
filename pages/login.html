@@ -74,6 +74,18 @@
         import { showModal, hideModal } from '../lib/modal.js';
         import { showToast } from '../lib/toast.js';
 
+        const _params = new URLSearchParams(window.location.search);
+        const _tokenHash = _params.get('token_hash');
+        const _type = _params.get('type');
+        if (_tokenHash && (_type === 'signup' || _type === 'email')) {
+            try {
+                await supabase.auth.verifyOtp({ token_hash: _tokenHash, type: _type });
+                try { localStorage.setItem('wheff-verify-done', Date.now().toString()); } catch {};
+                window.location.href = '/pages/game.html';
+                return;
+            } catch {}
+        }
+
         await redirectIfLoggedIn();
         await Promise.all([
             document.fonts.load('700 1em Jost'),
@@ -243,17 +255,26 @@
                     }
                     verifyResendTimer = setTimeout(showResendButton, 60000);
 
+                    function onVerifyDone() {
+                        clearInterval(pollInterval);
+                        clearTimeout(verifyResendTimer);
+                        const modal = document.querySelector('.modal');
+                        if (!modal) return;
+                        const btnWrap = modal.querySelector('.modal__buttons');
+                        if (btnWrap) { modal.classList.remove('modal--has-buttons'); btnWrap.remove(); }
+                        const textEl = modal.querySelector('.modal__text');
+                        if (textEl) textEl.textContent = 'You can close this window';
+                        try { localStorage.removeItem('wheff-verify-done'); } catch {};
+                    }
+
+                    window.addEventListener('storage', (ev) => {
+                        if (ev.key === 'wheff-verify-done') onVerifyDone();
+                    });
+
                     const pollInterval = setInterval(async () => {
+                        try { if (localStorage.getItem('wheff-verify-done')) { onVerifyDone(); return; } } catch {};
                         const { data: confirmed } = await supabase.rpc('is_email_confirmed', { p_email: data.email });
-                        if (confirmed) {
-                            clearInterval(pollInterval);
-                            clearTimeout(verifyResendTimer);
-                            const modal = document.querySelector('.modal');
-                            const btnWrap = modal?.querySelector('.modal__buttons');
-                            if (btnWrap) { modal.classList.remove('modal--has-buttons'); btnWrap.remove(); }
-                            const textEl = modal?.querySelector('.modal__text');
-                            if (textEl) textEl.textContent = 'You can close this window';
-                        }
+                        if (confirmed) onVerifyDone();
                     }, 3000);
                 } catch (err) {
                     setBannerLoading(goBtn, false);
