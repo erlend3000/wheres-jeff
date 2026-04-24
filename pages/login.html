@@ -222,6 +222,7 @@
                         text: 'Check your email and click the link'
                     });
 
+                    let verifyResendTimer;
                     function showResendButton() {
                         const modal = document.querySelector('.modal');
                         if (!modal) return;
@@ -237,29 +238,21 @@
                             modal.classList.remove('modal--has-buttons');
                             wrap.remove();
                             setTimeout(() => textEl.textContent = 'Check your email and click the link', 2000);
-                            setTimeout(showResendButton, 60000);
+                            verifyResendTimer = setTimeout(showResendButton, 60000);
                         });
                     }
-                    setTimeout(showResendButton, 60000);
+                    verifyResendTimer = setTimeout(showResendButton, 60000);
 
-                    let signInAttempts = 0;
                     const pollInterval = setInterval(async () => {
                         const { data: confirmed } = await supabase.rpc('is_email_confirmed', { p_email: data.email });
                         if (confirmed) {
-                            signInAttempts++;
-                            try {
-                                await signIn(data.email, data.password);
-                                clearInterval(pollInterval);
-                                window.location.href = '/pages/game.html';
-                            } catch (e) {
-                                if (signInAttempts >= 3) {
-                                    clearInterval(pollInterval);
-                                    hideModal();
-                                    showStep('login');
-                                    const emailField = steps.login.querySelector('wheff-field[label="Email"]');
-                                    if (emailField) emailField.value = data.email;
-                                }
-                            }
+                            clearInterval(pollInterval);
+                            clearTimeout(verifyResendTimer);
+                            const modal = document.querySelector('.modal');
+                            const btnWrap = modal?.querySelector('.modal__buttons');
+                            if (btnWrap) { modal.classList.remove('modal--has-buttons'); btnWrap.remove(); }
+                            const textEl = modal?.querySelector('.modal__text');
+                            if (textEl) textEl.textContent = 'You can close this window';
                         }
                     }, 3000);
                 } catch (err) {
@@ -305,9 +298,11 @@
                                 if (btnWrap) { modal.classList.remove('modal--has-buttons'); btnWrap.remove(); }
 
                                 try {
+                                    try { localStorage.removeItem('wheff-reset-ready'); } catch {};
                                     await resetPassword(data.email);
                                     setText('Check your email and click the link');
 
+                                    let resendTimer;
                                     function showResendButton() {
                                         const m = document.querySelector('.modal');
                                         if (!m) return;
@@ -325,19 +320,32 @@
                                             m.classList.remove('modal--has-buttons');
                                             wrap.remove();
                                             setTimeout(() => { textEl.textContent = 'Check your email and click the link'; }, 2000);
-                                            setTimeout(showResendButton, 60000);
+                                            resendTimer = setTimeout(showResendButton, 60000);
                                         });
                                     }
-                                    setTimeout(showResendButton, 60000);
+                                    resendTimer = setTimeout(showResendButton, 60000);
 
-                                    const pollInterval = setInterval(async () => {
-                                        const { data: { session } } = await supabase.auth.getSession();
-                                        if (session) {
-                                            clearInterval(pollInterval);
-                                            hideModal();
-                                            window.location.href = '/pages/game.html';
-                                        }
-                                    }, 3000);
+                                    function onResetReady() {
+                                        clearTimeout(resendTimer);
+                                        const m = document.querySelector('.modal');
+                                        if (!m) return;
+                                        const btnWrap = m.querySelector('.modal__buttons');
+                                        if (btnWrap) { m.classList.remove('modal--has-buttons'); btnWrap.remove(); }
+                                        setText('You can close this window');
+                                        try { localStorage.removeItem('wheff-reset-ready'); } catch {};
+                                    }
+
+                                    window.addEventListener('storage', (ev) => {
+                                        if (ev.key === 'wheff-reset-ready') onResetReady();
+                                    });
+                                    const resetPoll = setInterval(() => {
+                                        try {
+                                            if (localStorage.getItem('wheff-reset-ready')) {
+                                                clearInterval(resetPoll);
+                                                onResetReady();
+                                            }
+                                        } catch {};
+                                    }, 2000);
                                 } catch (resetErr) {
                                     setText(friendlyError(resetErr));
                                     setTimeout(hideModal, 3000);
