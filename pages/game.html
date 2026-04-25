@@ -263,6 +263,7 @@
         let sabResetTimer = null;
         let revealRefreshTimer = null;
         let autoGuessRefreshTimer = null;
+        let lastNextMysteryStart = null;
         let pinLabelMarker = null;
         let pinLabelTimer = null;
         let waitingImages = {};
@@ -511,6 +512,14 @@
                             if (!stateChanged) {
                                 const freshCurrent = getCurrentMystery(fresh);
                                 if (freshCurrent) { stateChanged = true; newMysteryDetected = true; }
+                            }
+                            if (!stateChanged) {
+                                const freshNext = await getNextMysteryInfo(season.id);
+                                const freshNextStart = freshNext?.published_at || null;
+                                if (freshNextStart !== lastNextMysteryStart) {
+                                    stateChanged = true;
+                                }
+                                lastNextMysteryStart = freshNextStart;
                             }
                         } catch {}
                     }
@@ -2083,6 +2092,7 @@
             try { nextInfo = await getNextMysteryInfo(season.id); } catch {}
             const nextStart = nextInfo?.published_at || null;
             const nextType = nextInfo?.type || 'location';
+            lastNextMysteryStart = nextStart;
 
             const countdownText = nextStart ? (formatCountdownIn(nextStart) || '') : 'STARTING SOON!';
             const waitingImg = waitingImages[nextType] || waitingImages.location || null;
