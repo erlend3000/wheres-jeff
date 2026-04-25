@@ -2442,7 +2442,7 @@
                 let panX = 0, panY = 0;
                 if (labelRect.right + pad > mapRect.right) panX = labelRect.right + pad - mapRect.right;
                 else if (labelRect.left - pad < mapRect.left) panX = labelRect.left - pad - mapRect.left;
-                const mapWrapper = mapContainer.parentElement;
+                const mapWrapper = mapContainer.closest('.mystery') || mapContainer.parentElement;
                 let safeTop = mapRect.top + pad;
                 let safeBot = mapRect.bottom - pad;
                 if (mapWrapper) {
