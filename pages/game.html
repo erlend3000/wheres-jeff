@@ -402,6 +402,7 @@
             if (bgPollInterval) { clearInterval(bgPollInterval); bgPollInterval = null; }
             if (mysteriesChannel) { mysteriesChannel.unsubscribe(); mysteriesChannel = null; }
             if (autoGuessRefreshTimer) { clearTimeout(autoGuessRefreshTimer); autoGuessRefreshTimer = null; }
+            lastNextMysteryStart = null;
             if (confettiInterval) { clearInterval(confettiInterval); confettiInterval = null; }
             if (worldMap) { worldMap.remove(); worldMap = null; }
             worldTimeCanvas = null; worldTimeCtx = null;
@@ -469,6 +470,7 @@
             startBgPoll();
         }
 
+        const AUTOGUESS_REFRESH_WINDOW_MS = 90_000;
         function scheduleAutoGuessRefresh() {
             if (autoGuessRefreshTimer) { clearTimeout(autoGuessRefreshTimer); autoGuessRefreshTimer = null; }
             if (!revealedMysteries.length) return;
@@ -477,12 +479,11 @@
                 if (new Date(m.reveals_at) > new Date(mostRecent.reveals_at)) mostRecent = m;
             }
             const ago = Date.now() - new Date(mostRecent.reveals_at).getTime();
-            const window = 90_000;
-            if (ago < 0 || ago >= window) return;
+            if (ago < 0 || ago >= AUTOGUESS_REFRESH_WINDOW_MS) return;
             autoGuessRefreshTimer = setTimeout(() => {
                 autoGuessRefreshTimer = null;
                 if (!isReloading) reloadMysteries({ preserveNav: true });
-            }, window - ago);
+            }, AUTOGUESS_REFRESH_WINDOW_MS - ago);
         }
 
         function startBgPoll() {
