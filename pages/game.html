@@ -83,7 +83,7 @@
         import {
             getUserSeasons, getAllSeasons, getSeasonMysteries, getCurrentMystery, getRevealedMysteries,
             getNextMysteryInfo, getAppSetting,
-            getGuesses, getUserGuess, submitGuess, submitTimeGuess, subscribeGuesses,
+            getGuesses, getUserGuess, submitGuess, submitTimeGuess, subscribeGuesses, subscribeMysteries,
             getMysteryLeaderboard, getSeasonLeaderboard,
             checkSeasonAutoEnd, getSeasonWinners,
             formatTimeAgo, formatDistance, formatDistanceShort, formatCountdown, formatCountdownIn, formatMysteryDate,
@@ -245,6 +245,7 @@
         let navItems = [];
         let navPos = 0;
         let activeChannel = null;
+        let mysteriesChannel = null;
         let countdownInterval = null;
         let bgPollInterval = null;
         let isReloading = false;
@@ -261,6 +262,7 @@
         let sabMode = 'distance';
         let sabResetTimer = null;
         let revealRefreshTimer = null;
+        let autoGuessRefreshTimer = null;
         let pinLabelMarker = null;
         let pinLabelTimer = null;
         let waitingImages = {};
@@ -397,6 +399,8 @@
         function openChooser() {
             cleanupMystery();
             if (bgPollInterval) { clearInterval(bgPollInterval); bgPollInterval = null; }
+            if (mysteriesChannel) { mysteriesChannel.unsubscribe(); mysteriesChannel = null; }
+            if (autoGuessRefreshTimer) { clearTimeout(autoGuessRefreshTimer); autoGuessRefreshTimer = null; }
             if (confettiInterval) { clearInterval(confettiInterval); confettiInterval = null; }
             if (worldMap) { worldMap.remove(); worldMap = null; }
             worldTimeCanvas = null; worldTimeCtx = null;
@@ -427,11 +431,17 @@
             document.getElementById('game-content').style.display = '';
 
             if (bgPollInterval) { clearInterval(bgPollInterval); bgPollInterval = null; }
+            if (mysteriesChannel) { mysteriesChannel.unsubscribe(); mysteriesChannel = null; }
 
             if (season) {
                 mysteries = await getSeasonMysteries(season.id);
                 currentMystery = getCurrentMystery(mysteries);
                 revealedMysteries = getRevealedMysteries(mysteries);
+
+                mysteriesChannel = subscribeMysteries(season.id, () => {
+                    if (isReloading) return;
+                    reloadMysteries({ preserveNav: true });
+                });
 
                 const shouldCheckEnd = (season.active || season.ending) && !currentMystery && revealedMysteries.length;
                 if (shouldCheckEnd) {
@@ -454,7 +464,24 @@
             populateStats();
             updateBottomPadding();
 
+            scheduleAutoGuessRefresh();
             startBgPoll();
+        }
+
+        function scheduleAutoGuessRefresh() {
+            if (autoGuessRefreshTimer) { clearTimeout(autoGuessRefreshTimer); autoGuessRefreshTimer = null; }
+            if (!revealedMysteries.length) return;
+            let mostRecent = revealedMysteries[0];
+            for (const m of revealedMysteries) {
+                if (new Date(m.reveals_at) > new Date(mostRecent.reveals_at)) mostRecent = m;
+            }
+            const ago = Date.now() - new Date(mostRecent.reveals_at).getTime();
+            const window = 90_000;
+            if (ago < 0 || ago >= window) return;
+            autoGuessRefreshTimer = setTimeout(() => {
+                autoGuessRefreshTimer = null;
+                if (!isReloading) reloadMysteries({ preserveNav: true });
+            }, window - ago);
         }
 
         function startBgPoll() {
@@ -2275,7 +2302,7 @@
             if (type === 'latest') {
                 let refreshCount = 0;
                 function scheduleRefresh() {
-                    if (refreshCount >= 4) return;
+                    if (refreshCount >= 8) return;
                     revealRefreshTimer = setTimeout(async () => {
                         revealRefreshTimer = null;
                         const table = document.getElementById('results-table');
@@ -2687,6 +2714,8 @@
                 await renderPastMysteries();
                 populateStats();
                 updateBottomPadding();
+
+                scheduleAutoGuessRefresh();
 
                 if (opts.scrollToMystery) {
                     requestAnimationFrame(() => {
