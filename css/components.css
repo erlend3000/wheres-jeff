@@ -717,7 +717,8 @@ wheff-card:not(.card-wrapper) {
 .results-strip__col--pos      { width: 5vw; }
 .results-strip__col--wins     { width: 8vw; }
 .results-strip__col--karma    { width: 10vw; }
-.results-strip__col--trend    { width: 8vw; font-style: normal; }
+.results-strip__col--trend    { width: 8vw; font-style: normal; display: flex; align-items: center; }
+.trend-fire { margin-left: 0.3em; }
 
 /* Leaderboard variant — mirrored (strips from right) */
 .mystery__submitted--leaderboard .mystery__submitted-row {
