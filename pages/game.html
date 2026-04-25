@@ -99,10 +99,10 @@
             const p = new URLSearchParams(window.location.search);
             const th = p.get('token_hash'), tp = p.get('type');
             if (th && (tp === 'signup' || tp === 'email')) {
-                try {
-                    await supabase.auth.verifyOtp({ token_hash: th, type: tp });
+                const { error } = await supabase.auth.verifyOtp({ token_hash: th, type: tp });
+                if (!error) {
                     try { localStorage.setItem('wheff-verify-done', Date.now().toString()); } catch {};
-                } catch {}
+                }
                 history.replaceState(null, '', window.location.pathname);
             }
         }
@@ -442,7 +442,7 @@
 
             await buildNavItems();
             await renderMysteryAtPosition();
-            renderWinners();
+            renderWinners().catch(() => {});
             await renderLeaderboard();
             await renderPastMysteries();
             populateStats();
@@ -2676,7 +2676,7 @@
                 }
 
                 await renderMysteryAtPosition();
-                renderWinners();
+                renderWinners().catch(() => {});
                 await renderLeaderboard();
                 await renderPastMysteries();
                 populateStats();
