@@ -159,8 +159,21 @@
         const TREND_FIRE_SVG = `<svg xmlns="http://www.w3.org/2000/svg" width="0.80em" height="0.80em" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-0.06em"><path d="M4 14a1 1 0 0 1-.78-1.63l9.9-10.2a.5.5 0 0 1 .86.46l-1.92 6.02A1 1 0 0 0 13 10h7a1 1 0 0 1 .78 1.63l-9.9 10.2a.5.5 0 0 1-.86-.46l1.92-6.02A1 1 0 0 0 11 14z"/></svg>`;
         const TREND_SVG = { up: TREND_UP_SVG, down: TREND_DOWN_SVG, same: TREND_SAME_SVG, new: TREND_STAR_SVG };
         let lastResultData = null;
-        let cachedLeaderboard = null;
+        const cachedLeaderboardByMode = {};
         let leaderboardSort = 'score';
+        const LEADERBOARD_MODES = ['best70', 'all', 'latest'];
+        const LEADERBOARD_MODE_LABELS = { best70: 'BEST 70%', all: 'ALL', latest: 'LATEST' };
+        const WINNERS_MODES = ['best70', 'all'];
+        function loadLeaderboardMode() {
+            const stored = localStorage.getItem('wheff-leaderboard-mode');
+            return LEADERBOARD_MODES.includes(stored) ? stored : 'best70';
+        }
+        function loadWinnersMode() {
+            const stored = localStorage.getItem('wheff-winners-mode');
+            return WINNERS_MODES.includes(stored) ? stored : 'best70';
+        }
+        let leaderboardMode = loadLeaderboardMode();
+        let winnersMode = loadWinnersMode();
         let confettiInterval = null;
         let pendingRevealConfetti = false;
 
@@ -3344,7 +3357,7 @@
                 return;
             }
 
-            const winners = await getSeasonWinners(season.id);
+            const winners = await getSeasonWinners(season.id, winnersMode);
             if (!winners) {
                 section.style.display = 'none';
                 container.innerHTML = '';
@@ -3418,11 +3431,21 @@
                             </div>
                         </div>
                     </div>
+                    <div class="edge-wrapper edge-wrapper--strip edge-wrapper--from-right" style="top:auto;bottom:0;transform:none;pointer-events:none;">
+                        <div class="strip strip--from-right" id="winners-mode-strip" style="pointer-events:auto;"></div>
+                    </div>
                 </div>
             `;
 
-            const seenKey = `wheff_winners_seen_${season.id}`;
-            const alreadySeen = localStorage.getItem(seenKey);
+            renderWinnersModeStrip(container);
+
+            const seenKey = `wheff_winners_seen_${season.id}_${winnersMode}`;
+            const legacyKey = `wheff_winners_seen_${season.id}`;
+            let alreadySeen = localStorage.getItem(seenKey);
+            if (!alreadySeen && winnersMode === 'best70' && localStorage.getItem(legacyKey)) {
+                alreadySeen = '1';
+                localStorage.setItem(seenKey, '1');
+            }
             if (!alreadySeen) {
                 document.querySelector('.winners-body')?.classList.add('animating');
                 await waitForVisible(section);
@@ -3431,6 +3454,32 @@
             } else {
                 startConfettiLoop();
             }
+        }
+
+        function renderWinnersModeStrip(container) {
+            const stripEl = container.querySelector('#winners-mode-strip');
+            if (!stripEl) return;
+            const idx = WINNERS_MODES.indexOf(winnersMode);
+            const canPrev = idx > 0;
+            const canNext = idx < WINNERS_MODES.length - 1;
+            stripEl.innerHTML = `
+                ${canPrev ? '<button class="strip__arrow strip__arrow--left" id="winners-mode-prev"></button>' : ''}
+                <span class="strip__text">${LEADERBOARD_MODE_LABELS[winnersMode]}</span>
+                ${canNext ? '<button class="strip__arrow strip__arrow--right" id="winners-mode-next"></button>' : ''}`;
+            const prevBtn = container.querySelector('#winners-mode-prev');
+            const nextBtn = container.querySelector('#winners-mode-next');
+            if (prevBtn) prevBtn.addEventListener('click', () => switchWinnersMode(-1));
+            if (nextBtn) nextBtn.addEventListener('click', () => switchWinnersMode(1));
+        }
+
+        async function switchWinnersMode(delta) {
+            const idx = WINNERS_MODES.indexOf(winnersMode);
+            const newIdx = idx + delta;
+            if (newIdx < 0 || newIdx >= WINNERS_MODES.length) return;
+            winnersMode = WINNERS_MODES[newIdx];
+            localStorage.setItem('wheff-winners-mode', winnersMode);
+            if (confettiInterval) { clearInterval(confettiInterval); confettiInterval = null; }
+            await renderWinners();
         }
 
         function wait(ms) { return new Promise(r => setTimeout(r, ms)); }
@@ -3548,12 +3597,13 @@
             const fireKey = mode === 'wins' ? 'on_fire_wins' : mode === 'karma' ? 'on_fire_karma' : 'on_fire_score';
             const trend = entry[key] ?? entry.trend;
             const svg = TREND_SVG[trend] ?? '';
-            const fire = entry[fireKey] ? `<span class="trend-fire">${TREND_FIRE_SVG}</span>` : '';
+            const showFire = leaderboardMode !== 'latest' && entry[fireKey];
+            const fire = showFire ? `<span class="trend-fire">${TREND_FIRE_SVG}</span>` : '';
             return svg + fire;
         }
 
         function renderLeaderboardRows(container) {
-            const board = cachedLeaderboard;
+            const board = cachedLeaderboardByMode[leaderboardMode];
             if (!board?.length) return;
             const sorted = sortLeaderboard(board, leaderboardSort);
             const rowsEl = container.querySelector('.leaderboard-rows');
@@ -3576,12 +3626,50 @@
             });
         }
 
+        async function fetchLeaderboardForMode(mode) {
+            if (!cachedLeaderboardByMode[mode]) {
+                cachedLeaderboardByMode[mode] = await getSeasonLeaderboard(season.id, mode);
+            }
+            return cachedLeaderboardByMode[mode];
+        }
+
+        function renderLeaderboardModeStrip(container) {
+            const stripEl = container.querySelector('#leaderboard-mode-strip');
+            if (!stripEl) return;
+            const idx = LEADERBOARD_MODES.indexOf(leaderboardMode);
+            const canPrev = idx > 0;
+            const canNext = idx < LEADERBOARD_MODES.length - 1;
+            stripEl.innerHTML = `
+                ${canPrev ? '<button class="strip__arrow strip__arrow--left" id="lb-mode-prev"></button>' : ''}
+                <span class="strip__text">${LEADERBOARD_MODE_LABELS[leaderboardMode]}</span>
+                ${canNext ? '<button class="strip__arrow strip__arrow--right" id="lb-mode-next"></button>' : ''}`;
+            const prevBtn = container.querySelector('#lb-mode-prev');
+            const nextBtn = container.querySelector('#lb-mode-next');
+            if (prevBtn) prevBtn.addEventListener('click', () => switchLeaderboardMode(-1));
+            if (nextBtn) nextBtn.addEventListener('click', () => switchLeaderboardMode(1));
+        }
+
+        async function switchLeaderboardMode(delta) {
+            const idx = LEADERBOARD_MODES.indexOf(leaderboardMode);
+            const newIdx = idx + delta;
+            if (newIdx < 0 || newIdx >= LEADERBOARD_MODES.length) return;
+            leaderboardMode = LEADERBOARD_MODES[newIdx];
+            localStorage.setItem('wheff-leaderboard-mode', leaderboardMode);
+            await fetchLeaderboardForMode(leaderboardMode);
+            const container = document.getElementById('leaderboard-content');
+            if (container) {
+                renderLeaderboardModeStrip(container);
+                renderLeaderboardRows(container);
+            }
+            populateStats();
+        }
+
         async function renderLeaderboard() {
             const container = document.getElementById('leaderboard-content');
             if (!season) { container.innerHTML = ''; return; }
 
-            cachedLeaderboard = await getSeasonLeaderboard(season.id);
-            const board = cachedLeaderboard;
+            for (const k of Object.keys(cachedLeaderboardByMode)) delete cachedLeaderboardByMode[k];
+            const board = await fetchLeaderboardForMode(leaderboardMode);
             if (!board.length) { container.innerHTML = ''; return; }
 
             container.innerHTML = `
@@ -3604,9 +3692,13 @@
                         </div>
                         <div class="leaderboard-rows"></div>
                     </div>
+                    <div class="edge-wrapper edge-wrapper--strip edge-wrapper--from-right" style="top:auto;bottom:0;transform:none;pointer-events:none;">
+                        <div class="strip strip--from-right" id="leaderboard-mode-strip" style="pointer-events:auto;"></div>
+                    </div>
                 </div>
             `;
 
+            renderLeaderboardModeStrip(container);
             renderLeaderboardRows(container);
 
             container.querySelectorAll('.results-header__col--sortable').forEach(col => {
@@ -3621,7 +3713,7 @@
 
         async function populateStats() {
             if (!season) return;
-            const board = cachedLeaderboard || await getSeasonLeaderboard(season.id);
+            const board = cachedLeaderboardByMode[leaderboardMode] || await getSeasonLeaderboard(season.id, leaderboardMode);
             const myEntry = board.find(e => e.user_id === userId);
 
             function setField(name, value) {

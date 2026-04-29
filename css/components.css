@@ -810,6 +810,7 @@ wheff-card:not(.card-wrapper) {
 .mystery__submitted--leaderboard {
     margin-top: calc(-1 * (var(--banner-height) / 2 + var(--font-size-title) * 0.84));
     padding-top: calc(var(--banner-height) / 2 + var(--font-size-title) * 0.84 + 5vw);
+    padding-bottom: 12vw; /* luft fra siste rad til bunnstrip */
     z-index: 1;
 }
 
