@@ -184,9 +184,14 @@ wheff-card:not(.card-wrapper) {
     white-space: nowrap;
 }
 
-/* Vertical position */
-.banner--top    { top: 0;    transform: translateY(-50%); }
-.banner--bottom { bottom: 0; transform: translateY(50%);  }
+/* Vertical position. Two Safari workarounds:
+   1) Use individual `translate` so the pulse animation's individual `scale`
+      doesn't clobber it.
+   2) Use an absolute viewport-relative offset instead of 50% — Safari freezes
+      percentage translates on composited layers (the pulse animation), so
+      the banner drifts away from the card edge on window resize. */
+.banner--top    { top: 0;    translate: 0 calc(var(--banner-height) / -2); }
+.banner--bottom { bottom: 0; translate: 0 calc(var(--banner-height) /  2); }
 
 /* Direction: strip extends left, text aligns to left edge of card */
 .banner--from-left {
@@ -224,7 +229,7 @@ wheff-card:not(.card-wrapper) {
     height: calc(var(--font-size-title) * 0.84);
 }
 .banner--small.banner--bottom {
-    transform: none;
+    translate: none;
     bottom: -1px;
 }
 .banner--small .banner__text {
@@ -466,7 +471,7 @@ wheff-card:not(.card-wrapper) {
 
 .edge-wrapper .banner {
     position: relative;
-    transform: none;
+    translate: none;
 }
 .edge-wrapper .strip {
     position: relative;
@@ -613,10 +618,6 @@ wheff-card:not(.card-wrapper) {
     padding: 0 2.1vw;
     pointer-events: none;
 }
-.mystery__distance-label--interactive {
-    pointer-events: auto;
-    cursor: pointer;
-}
 .mystery__distance-label::before {
     content: '';
     position: absolute;
@@ -719,6 +720,13 @@ wheff-card:not(.card-wrapper) {
 .results-strip__col--karma    { width: 10vw; }
 .results-strip__col--trend    { width: 8vw; font-style: normal; display: flex; align-items: center; }
 .trend-fire { margin-left: 0.3em; }
+
+/* Optical nudge: rows are right-aligned in mystery results table, so
+   pad the right edge slightly to push contents a hair leftward and
+   counter the visual lean of the italic font. */
+.results-strip:not(.results-strip--leaderboard) .results-strip__col {
+    padding-right: 0.2vw;
+}
 
 /* Leaderboard variant — mirrored (strips from right) */
 .mystery__submitted--leaderboard .mystery__submitted-row {
@@ -950,7 +958,7 @@ wheff-card:not(.card-wrapper) {
     overflow: hidden;
     margin-top: calc(-1 * (var(--banner-height) / 2 + var(--font-size-title) * 0.84));
     padding-top: calc(var(--banner-height) / 2 + var(--font-size-title) * 0.84 * 2);
-    padding-bottom: 11vw;
+    padding-bottom: 14vw;
     z-index: 1;
 }
 
@@ -977,7 +985,7 @@ wheff-card:not(.card-wrapper) {
     left: auto;
     right: auto;
     height: var(--banner-height);
-    transform: none;
+    translate: none;
     z-index: 2;
     display: flex;
     align-items: center;
