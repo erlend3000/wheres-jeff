@@ -613,7 +613,8 @@ wheff-card:not(.card-wrapper) {
     --caret-end-gap: 0.12em;
     width: var(--caret-min-width);
 }
-.field__input-mirror-pre:not(:empty) ~ .field__input-caret--end {
+.field__input-mirror-pre:not(:empty) ~ .field__input-caret--end,
+.field__input-mirror-selection:not(:empty) ~ .field__input-caret--end {
     margin-left: var(--caret-end-gap);
 }
 
