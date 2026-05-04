@@ -58,16 +58,6 @@
 
     </section>
 
-    <script>
-        function fixAutofill() {
-            document.querySelectorAll('.field__input').forEach(input => {
-                input.focus({ preventScroll: true });
-                input.blur();
-            });
-        }
-        setTimeout(fixAutofill, 2500);
-    </script>
-
     <script type="module">
         import { signUp, signIn, resetPassword, redirectIfLoggedIn, validateName, friendlyError } from '../lib/auth.js';
         import { supabase } from '../lib/supabase.js';
@@ -82,6 +72,23 @@
             document.fonts.load('italic 900 1em Jost'),
         ]);
         document.getElementById('page-loader')?.remove();
+
+        // Focus the first input once the login section is actually visible
+        // (i.e. user has scrolled down or tapped the arrow). Doing it on load
+        // caused Safari to auto-scroll past the logo screen.
+        const loginSection = document.getElementById('login-section');
+        const focusObserver = new IntersectionObserver((entries) => {
+            if (entries[0].isIntersecting) {
+                focusObserver.disconnect();
+                const activeStep = document.querySelector('.login-step.active');
+                if (activeStep) {
+                    const inputs = activeStep.querySelectorAll('.field__input');
+                    const target = [...inputs].find(i => !i.value) || inputs[0];
+                    if (target) target.focus({ preventScroll: true });
+                }
+            }
+        }, { threshold: 0.5 });
+        if (loginSection) focusObserver.observe(loginSection);
 
         function setBannerLoading(el, loading) {
             if (loading) {
@@ -106,10 +113,19 @@
         let emailFromStep1 = '';
         let loginFailCount = 0;
 
+        function focusFirstEmpty(step) {
+            const inputs = step.querySelectorAll('.field__input');
+            const target = [...inputs].find(i => !i.value) || inputs[0];
+            if (target) target.focus({ preventScroll: true });
+        }
+
         function showStep(name) {
             Object.values(steps).forEach(s => s.classList.remove('active'));
             steps[name].classList.add('active');
             if (name === 'welcome') loginFailCount = 0;
+            // Defer until layout settles and the value setter from any previous
+            // step (e.g. emailField.value = emailFromStep1) has populated.
+            requestAnimationFrame(() => focusFirstEmpty(steps[name]));
         }
 
         document.getElementById('scroll-down').addEventListener('click', () => {
@@ -117,7 +133,10 @@
         });
 
         function isFieldValid(input) {
-            if (input.type === 'email') return input.value.includes('@') && input.value.includes('.');
+            // Email fields render as type="text" internally (so our custom
+            // caret can track selection — type="email" returns null for
+            // selectionStart in Chrome/Safari) and carry a data-type marker.
+            if (input.dataset.type === 'email') return input.value.includes('@') && input.value.includes('.');
             return input.value.trim().length > 0;
         }
 

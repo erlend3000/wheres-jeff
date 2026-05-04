@@ -291,6 +291,7 @@ wheff-card:not(.card-wrapper) {
 .field__input {
     width: 100%;
     height: 100%;
+    padding: 0;
     background: transparent;
     border: none;
     outline: none;
@@ -301,6 +302,8 @@ wheff-card:not(.card-wrapper) {
     color: var(--color-text);
     transform: skewX(calc(var(--skew) * -1));
     text-transform: uppercase;
+    font-kerning: none;
+    font-variant-ligatures: none;
     -webkit-appearance: none;
     appearance: none;
     border-radius: 0;
@@ -351,20 +354,288 @@ wheff-card:not(.card-wrapper) {
     scroll-margin-top: calc(var(--section-gap) / 2);
 }
 
-@keyframes autofill-detect { from { opacity: .99; } to { opacity: 1; } }
-
+/* Override browser autofill styling. Safari/Chrome both render autofilled
+   inputs with their own font/size/colour and ignore most CSS unless we use
+   a layered set of overrides. We cover both the legacy `-webkit-autofill`
+   pseudo-class and the standardised `autofill` pseudo-class (Safari 16+,
+   Chrome 117+), and explicitly restore every property that the browsers
+   like to override — including font-size and the skewX transform that
+   keeps text aligned with the slanted input wrapper.
+   IMPORTANT: do NOT mix Chromium-only `:-internal-autofill-*` selectors into
+   this grouped rule. Safari fails to parse them and drops the entire rule,
+   which would let its yellow autofill background through. */
 .field__input:-webkit-autofill,
 .field__input:-webkit-autofill:hover,
-.field__input:-webkit-autofill:focus {
+.field__input:-webkit-autofill:focus,
+.field__input:-webkit-autofill:active,
+.field__input:autofill {
     -webkit-box-shadow: 0 0 0 100vw var(--color-text-inverse) inset !important;
+    box-shadow: 0 0 0 100vw var(--color-text-inverse) inset !important;
     -webkit-text-fill-color: var(--color-text) !important;
+    color: var(--color-text) !important;
     font-family: var(--font-family) !important;
+    font-size: var(--font-size-body) !important;
     font-weight: var(--font-weight) !important;
     font-style: var(--font-style) !important;
+    line-height: 1 !important;
+    letter-spacing: normal !important;
     text-transform: uppercase !important;
+    transform: skewX(calc(var(--skew) * -1)) !important;
     caret-color: var(--color-text);
-    transition: background-color 5000s ease-in-out 0s;
-    animation: autofill-detect 0.01s forwards;
+    /* Stretch the background-color transition so the browser's yellow flash
+       never lands; also delay any font/colour changes that Safari might try. */
+    transition: background-color 5000s ease-in-out 0s, color 5000s ease-in-out 0s !important;
+}
+
+/* Chromium-only autofill preview/selected pseudo-classes — isolated so Safari
+   doesn't drop the rule above. */
+@supports selector(:-internal-autofill-selected) {
+    .field__input:-internal-autofill-previewed,
+    .field__input:-internal-autofill-selected {
+        -webkit-box-shadow: 0 0 0 100vw var(--color-text-inverse) inset !important;
+        box-shadow: 0 0 0 100vw var(--color-text-inverse) inset !important;
+        -webkit-text-fill-color: var(--color-text) !important;
+        color: var(--color-text) !important;
+        font-family: var(--font-family) !important;
+        font-size: var(--font-size-body) !important;
+        font-weight: var(--font-weight) !important;
+        font-style: var(--font-style) !important;
+        line-height: 1 !important;
+        letter-spacing: normal !important;
+        text-transform: uppercase !important;
+        transform: skewX(calc(var(--skew) * -1)) !important;
+        caret-color: var(--color-text);
+        transition: background-color 5000s ease-in-out 0s, color 5000s ease-in-out 0s !important;
+    }
+}
+
+/* === Mirror layer === */
+
+/* Mirrored fields hide the native input's text and caret entirely and let an
+   absolutely-positioned <span> mirror render the value in our styling. This:
+   - sidesteps Chromium's autofill hover-preview (which ignores our CSS), and
+   - lets us draw a custom slanted caret that matches the italic font.
+   The native input still receives focus, autofill, selection and all events;
+   only its visible text is suppressed via -webkit-text-fill-color. */
+
+.field__input-wrapper--mirrored {
+    position: relative;
+    overflow: hidden;
+}
+
+/* IMPORTANT: keep Chromium-only `:-internal-autofill-*` selectors out of this
+   grouped rule. Safari fails to parse them and would drop the entire rule —
+   which would leave the native input's text visible on top of the mirror
+   (the "double text" bug) and let Safari's yellow autofill background through.
+   We also include `text-shadow: 0 0 0 transparent` because Safari's autofill
+   text-rendering pipeline sometimes ignores `text-fill-color: transparent`
+   unless this is also set. */
+.field__input-wrapper--mirrored .field__input,
+.field__input-wrapper--mirrored .field__input:hover,
+.field__input-wrapper--mirrored .field__input:focus,
+.field__input-wrapper--mirrored .field__input:focus-visible,
+.field__input-wrapper--mirrored .field__input:active,
+.field__input-wrapper--mirrored .field__input:-webkit-autofill,
+.field__input-wrapper--mirrored .field__input:-webkit-autofill:hover,
+.field__input-wrapper--mirrored .field__input:-webkit-autofill:focus,
+.field__input-wrapper--mirrored .field__input:-webkit-autofill:active,
+.field__input-wrapper--mirrored .field__input:autofill {
+    -webkit-text-fill-color: transparent !important;
+    color: transparent !important;
+    caret-color: transparent !important;
+    text-shadow: 0 0 0 transparent !important;
+    -webkit-box-shadow: 0 0 0 100vw var(--color-text-inverse) inset !important;
+    box-shadow: 0 0 0 100vw var(--color-text-inverse) inset !important;
+    background-color: var(--color-text-inverse) !important;
+    transition: background-color 5000s ease-in-out 0s, color 5000s ease-in-out 0s !important;
+}
+
+/* Chromium-only autofill preview/selected — isolated so Safari doesn't drop
+   the rule above. */
+@supports selector(:-internal-autofill-selected) {
+    .field__input-wrapper--mirrored .field__input:-internal-autofill-previewed,
+    .field__input-wrapper--mirrored .field__input:-internal-autofill-selected {
+        -webkit-text-fill-color: transparent !important;
+        color: transparent !important;
+        caret-color: transparent !important;
+        text-shadow: 0 0 0 transparent !important;
+        -webkit-box-shadow: 0 0 0 100vw var(--color-text-inverse) inset !important;
+        box-shadow: 0 0 0 100vw var(--color-text-inverse) inset !important;
+        background-color: var(--color-text-inverse) !important;
+        transition: background-color 5000s ease-in-out 0s, color 5000s ease-in-out 0s !important;
+    }
+}
+
+/* Restore placeholder colour — the transparent text-fill above also blanks
+   ::placeholder unless we explicitly set it back. */
+.field__input-wrapper--mirrored .field__input::placeholder,
+.field__input-wrapper--mirrored .field__input::-webkit-input-placeholder {
+    color: var(--color-placeholder) !important;
+    -webkit-text-fill-color: var(--color-placeholder) !important;
+    opacity: 1 !important;
+}
+
+/* Hide native selection styling on the mirrored input. The native input's
+   text is transparent (mirror layer renders the visible text), so any native
+   selection background would just be visual noise — Safari's blue autofill
+   highlight included. The mirror's own .field__input-mirror-selection span
+   draws the user-visible yellow highlight on top. Selection still works
+   logically (Cmd+A, drag-select, copy/cut/paste all behave normally). */
+.field__input-wrapper--mirrored .field__input::selection {
+    background: transparent !important;
+    color: transparent !important;
+}
+.field__input-wrapper--mirrored .field__input::-moz-selection {
+    background: transparent !important;
+    color: transparent !important;
+}
+
+/* The mirror is a fixed rectangular viewport that exactly overlays the input's
+   visible content area, plus a small `edge-pad` of breathing room on each side
+   so the slanted caret near the text-start or text-end isn't sliced off. The
+   inner layer carries matching padding so the visible content area lines up
+   pixel-for-pixel with the native input.
+   `--mirror-edge-pad` should be at least as wide as the caret-block so the
+   at-end block stays visible when long text scrolls right.
+   The native <input> now has `padding: 0` so the mirror aligns with it
+   without any manual horizontal offset. */
+.field__input-mirror {
+    --mirror-edge-pad: 2.2vw;
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    left: calc(var(--field-input-padding) - var(--mirror-edge-pad));
+    right: calc(var(--field-overflow) + var(--field-input-padding) - var(--mirror-edge-pad));
+    pointer-events: none;
+    user-select: none;
+    overflow: hidden;
+    z-index: 1;
+}
+
+/* Password fields have an eye toggle button on the right. Pull the mirror's
+   right edge in so bullets don't render over the toggle. */
+.field__input-wrapper--mirrored:has(.field__toggle) .field__input-mirror {
+    right: calc(var(--field-overflow) + var(--field-input-padding) - var(--mirror-edge-pad) + var(--field-height) * 0.9);
+}
+
+/* Password fields must preserve the user's original casing — never uppercase.
+   This applies to both the bullet display (where it has no visual effect) and
+   the show-password state (where it matters). The native input mirrors this
+   behaviour via .field__input--visible. */
+.field__input-wrapper--mirrored:has(.field__toggle) .field__input-mirror-inner {
+    text-transform: none;
+}
+
+/* Inner layer carries the skew, the font styling, and the JS-driven horizontal
+   translation that mirrors the native input's scrollLeft. Using `translate`
+   (the dedicated transform property) keeps it independent from the `transform`
+   skew so JS can update one without clobbering the other.
+   --caret-block-height is defined here so both the caret block and the
+   selection highlight (siblings inside this layer) can share the same fixed
+   height — keeps the two slanted blocks visually identical. */
+.field__input-mirror-inner {
+    --caret-block-height: 1em;
+    display: flex;
+    align-items: center;
+    height: 100%;
+    padding: 0 var(--mirror-edge-pad);
+    font-family: var(--font-family);
+    font-size: var(--font-size-body);
+    font-weight: var(--font-weight);
+    font-style: var(--font-style);
+    color: var(--color-text);
+    text-transform: uppercase;
+    white-space: pre;
+    font-kerning: none;
+    font-variant-ligatures: none;
+    transform: skewX(calc(var(--skew) * -1));
+    transform-origin: left center;
+    will-change: translate;
+}
+
+/* User selection — slanted yellow highlight, black text. A ::before pseudo
+   draws a skewed block behind the text (z-index: -1 within the inner's
+   stacking context). Height matches --caret-block-height for visual
+   consistency with the caret.
+   Native ::selection is transparent (see above); this mirror span is what
+   the user actually sees. */
+.field__input-mirror-selection {
+    position: relative;
+    color: var(--color-text);
+    height: var(--caret-block-height);
+    line-height: var(--caret-block-height);
+}
+.field__input-mirror-selection::before {
+    content: '';
+    position: absolute;
+    left: 0;
+    right: 0;
+    top: 0;
+    bottom: 0;
+    background: var(--color-accent);
+    transform: skewX(var(--skew));
+    transform-origin: center center;
+    z-index: -1;
+}
+
+/* === Custom caret — terminal-style slanted block cursor ===
+   The caret element IS the slanted block: its own background + skewX gives
+   it the Jeff-style lean. The character inside gets a counter-skew so it
+   stays upright. This avoids a separate ::before pseudo-element which caused
+   a straight-vs-skewed boundary mismatch and Safari repaint artifacts.
+   When the input is focused, background-color blinks on/off and the character
+   color toggles between inverted (white) and normal (black) in sync.
+   At end-of-value (no character), the block falls back to --caret-min-width. */
+.field__input-caret {
+    --caret-min-width: 0.7em;
+    --caret-blink: 1.06s;
+    --caret-bleed-left: 0.00em;  /* ADJUST: extra width on LEFT side */
+    --caret-bleed-right: 0.06em; /* ADJUST: extra width on RIGHT side */
+    display: inline-block;
+    flex-shrink: 0;
+    white-space: pre;
+    height: var(--caret-block-height);
+    line-height: var(--caret-block-height);
+    overflow: visible;
+    transform: skewX(var(--skew));
+    background: transparent;
+}
+
+/* Counter-skew the character so it stays upright inside the slanted block. */
+.field__input-caret-char {
+    display: inline-block;
+    transform: skewX(calc(var(--skew) * -1));
+}
+
+/* End-of-value: fixed width block since there's no character to size from.
+   ADJUST: --caret-end-gap for breathing space after last character. */
+.field__input-caret--end {
+    --caret-end-gap: 0.12em;
+    width: var(--caret-min-width);
+}
+.field__input-mirror-pre:not(:empty) ~ .field__input-caret--end {
+    margin-left: var(--caret-end-gap);
+}
+
+/* Focused: background blinks (block on/off) and text color blinks (invert
+   on/off) in sync, so the character is always readable. */
+.field__input-wrapper--mirrored:focus-within .field__input-caret {
+    animation: caret-blink var(--caret-blink) linear infinite;
+}
+.field__input-wrapper--mirrored:focus-within .field__input-caret-char {
+    animation: caret-blink-text var(--caret-blink) linear infinite;
+}
+
+@keyframes caret-blink {
+    0%, 49%   { background-color: var(--color-text);
+                box-shadow: calc(var(--caret-bleed-left) * -1) 0 0 0 var(--color-text),
+                            var(--caret-bleed-right) 0 0 0 var(--color-text); }
+    50%, 100% { background-color: transparent;
+                box-shadow: none; }
+}
+@keyframes caret-blink-text {
+    0%, 49%   { color: var(--color-text-inverse); }
+    50%, 100% { color: var(--color-text); }
 }
 
 /* Password visibility toggle */
@@ -958,7 +1229,7 @@ wheff-card:not(.card-wrapper) {
     overflow: hidden;
     margin-top: calc(-1 * (var(--banner-height) / 2 + var(--font-size-title) * 0.84));
     padding-top: calc(var(--banner-height) / 2 + var(--font-size-title) * 0.84 * 2);
-    padding-bottom: 14vw;
+    padding-bottom: 13vw;
     z-index: 1;
 }
 
