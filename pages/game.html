@@ -284,8 +284,15 @@
         let lastNextMysteryStart = null;
         let pinLabelMarker = null;
         let pinLabelTimer = null;
+        let pinLabelRequestId = 0;
         let waitingImages = {};
         const imageCache = new Map();
+        const CONFETTI_COLORS = ['#000000', '#FFFFFF', '#BA0000', '#000540', '#F4BD41', '#00478a', '#933000', '#6a1001'];
+        const LEADERBOARD_VALUE_FN = {
+            score: e => e.total_score,
+            wins: e => e.wins,
+            karma: e => e.jeff_karma,
+        };
 
         function pinStorageKey(mysteryId) { return `wheff_pin_${mysteryId}`; }
 
@@ -2455,8 +2462,6 @@
             setSabVisible(true);
         }
 
-        let pinLabelRequestId = 0;
-
         function autoPanForLabel(map, latlng, pinPx) {
             requestAnimationFrame(() => {
                 const labelEl = pinLabelMarker?.getElement()?.querySelector('.mystery__distance-label');
@@ -3458,8 +3463,6 @@
             });
         }
 
-        const CONFETTI_COLORS = ['#000000', '#FFFFFF', '#BA0000', '#000540', '#F4BD41', '#00478a', '#933000', '#6a1001'];
-
         function fireRevealConfetti() {
             const mapEl = document.getElementById('result-map-container');
             if (!mapEl || typeof confetti !== 'function') return;
@@ -3547,12 +3550,6 @@
         }
 
         // ── Leaderboard ──
-
-        const LEADERBOARD_VALUE_FN = {
-            score: e => e.total_score,
-            wins: e => e.wins,
-            karma: e => e.jeff_karma,
-        };
 
         function sortLeaderboardSimple(board, mode) {
             const valueOf = LEADERBOARD_VALUE_FN[mode] ?? LEADERBOARD_VALUE_FN.score;
