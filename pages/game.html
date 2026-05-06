@@ -287,6 +287,8 @@
         let pinLabelRequestId = 0;
         let waitingImages = {};
         const imageCache = new Map();
+
+        // Past mysteries world map + time map
         let pastViewPos = 0;
         let pastViewTypes = [];
         let pastGeoMysteries = [];
@@ -297,6 +299,37 @@
         let worldTimePanning = false, worldTimePanLastX = 0, worldTimePanLastY = 0;
         let worldTimeLabelTimer = null;
         let worldTimeLabelPinIdx = -1;
+
+        // Infinity curve (time mysteries)
+        let curveCanvas = null, curveCtx = null;
+        let curveZoom = 1;
+        let curvePinAlpha = null;
+        let curveDragging = false;
+        let curvePanning = false;
+        let curveContainer = null;
+        let curvePinEl = null;
+        let curveFieldsEl = null;
+        let curveResizeHandler = null;
+        let curveDetailLevel = 'year';
+        let curveReadonly = false;
+        let curveAnswerAlpha = null;
+        let curveViewX = 0, curveViewY = 0;
+        let curvePanLastX = null, curvePanLastY = null;
+        let curveDragScreenX = 0, curveDragScreenY = 0;
+        let curveAutoPanRAF = null;
+        let curveUserInteracted = false;
+
+        let curveTimeStart = -13_800_000_000;
+        let curveTimeEnd = 2026;
+        let curveMaxZoom = 5e10;
+        let curveNowInterval = null;
+
+        let curveResultMode = 'distance';
+        let curveResultEntry = null;
+        let curveResultAnswer = null;
+        let curveResultTimer = null;
+
+        // Constants
         const AUTOGUESS_REFRESH_WINDOW_MS = 90_000;
         const CURVE_Y_CENTER = 0.5;
         const CURVE_DRAW_PTS = 800;
@@ -334,35 +367,6 @@
         function clearPinStorage(mysteryId) {
             try { localStorage.removeItem(pinStorageKey(mysteryId)); } catch {}
         }
-
-        // Infinity curve state (time mysteries)
-        let curveCanvas = null, curveCtx = null;
-        let curveZoom = 1;
-        let curvePinAlpha = null;
-        let curveDragging = false;
-        let curvePanning = false;
-        let curveContainer = null;
-        let curvePinEl = null;
-        let curveFieldsEl = null;
-        let curveResizeHandler = null;
-        let curveDetailLevel = 'year';
-        let curveReadonly = false;
-        let curveAnswerAlpha = null;
-        let curveViewX = 0, curveViewY = 0;
-        let curvePanLastX = null, curvePanLastY = null;
-        let curveDragScreenX = 0, curveDragScreenY = 0;
-        let curveAutoPanRAF = null;
-        let curveUserInteracted = false;
-
-        let curveTimeStart = -13_800_000_000;
-        let curveTimeEnd = 2026;
-        let curveMaxZoom = 5e10;
-        let curveNowInterval = null;
-
-        let curveResultMode = 'distance';
-        let curveResultEntry = null;
-        let curveResultAnswer = null;
-        let curveResultTimer = null;
 
         function preloadImage(url) {
             if (!url) return;
