@@ -287,6 +287,29 @@
         let pinLabelRequestId = 0;
         let waitingImages = {};
         const imageCache = new Map();
+        let pastViewPos = 0;
+        let pastViewTypes = [];
+        let pastGeoMysteries = [];
+        let pastTimeMysteries = [];
+        let worldTimePanX = 0, worldTimePanY = 0;
+        let worldTimeZoom = 1.5;
+        let worldTimeMaxZoom = 5e10;
+        let worldTimePanning = false, worldTimePanLastX = 0, worldTimePanLastY = 0;
+        let worldTimeLabelTimer = null;
+        let worldTimeLabelPinIdx = -1;
+        const AUTOGUESS_REFRESH_WINDOW_MS = 90_000;
+        const CURVE_Y_CENTER = 0.5;
+        const CURVE_DRAW_PTS = 800;
+        const NUM_STRANDS = 40;
+        const STREAM_COLORS = [
+            '#9E2848', '#B83058', '#C84060', '#A83555',
+            '#1A5C20', '#0D4A15', '#2D8A38', '#1E7030', '#3A9E48',
+            '#5A4A70', '#7850A0', '#6A5A88', '#8860B0', '#784898',
+            '#1A3FA0', '#0020B8', '#3060C0', '#2050D0', '#1848A8',
+            '#D0A030', '#E8C040', '#C89828', '#B88820',
+        ];
+        const DETAIL_MIN_VISIBLE = { year: 1, month: 1/12, day: 1/365.25, minute: 1/8766 };
+        const RANGE_UNIT_TO_YEARS = { minute: 1/525960, hour: 1/8766, day: 1/365.25, month: 1/12, year: 1 };
         const CONFETTI_COLORS = ['#000000', '#FFFFFF', '#BA0000', '#000540', '#F4BD41', '#00478a', '#933000', '#6a1001'];
         const LEADERBOARD_VALUE_FN = {
             score: e => e.total_score,
@@ -495,7 +518,6 @@
             startBgPoll();
         }
 
-        const AUTOGUESS_REFRESH_WINDOW_MS = 90_000;
         function scheduleAutoGuessRefresh() {
             if (autoGuessRefreshTimer) { clearTimeout(autoGuessRefreshTimer); autoGuessRefreshTimer = null; }
             if (!revealedMysteries.length) return;
@@ -614,18 +636,6 @@
         }
 
         // ── Infinity Curve (Time Mysteries) ──
-
-        const CURVE_Y_CENTER = 0.5;
-        const CURVE_DRAW_PTS = 800;
-        const NUM_STRANDS = 40;
-        const STREAM_COLORS = [
-            '#9E2848', '#B83058', '#C84060', '#A83555',
-            '#1A5C20', '#0D4A15', '#2D8A38', '#1E7030', '#3A9E48',
-            '#5A4A70', '#7850A0', '#6A5A88', '#8860B0', '#784898',
-            '#1A3FA0', '#0020B8', '#3060C0', '#2050D0', '#1848A8',
-            '#D0A030', '#E8C040', '#C89828', '#B88820',
-        ];
-        const DETAIL_MIN_VISIBLE = { year: 1, month: 1/12, day: 1/365.25, minute: 1/8766 };
 
         function nowDecimal() {
             const n = new Date();
@@ -1158,8 +1168,6 @@
                 timeEl.style.display = display.time ? '' : 'none';
             }
         }
-
-        const RANGE_UNIT_TO_YEARS = { minute: 1/525960, hour: 1/8766, day: 1/365.25, month: 1/12, year: 1 };
 
         function effectiveTimeDiff(entry, answer) {
             let diff = timeYearsDiff(entry, answer, answer.detail_level);
@@ -2743,17 +2751,6 @@
         }
 
         // ── Past Mysteries World Map + Time Map ──
-
-        let pastViewPos = 0;
-        let pastViewTypes = [];
-        let pastGeoMysteries = [];
-        let pastTimeMysteries = [];
-        let worldTimePanX = 0, worldTimePanY = 0;
-        let worldTimeZoom = 1.5;
-        let worldTimeMaxZoom = 5e10;
-        let worldTimePanning = false, worldTimePanLastX = 0, worldTimePanLastY = 0;
-        let worldTimeLabelTimer = null;
-        let worldTimeLabelPinIdx = -1;
 
         function removeWorldTimeLabel() {
             if (worldTimeLabelTimer) { clearTimeout(worldTimeLabelTimer); worldTimeLabelTimer = null; }
