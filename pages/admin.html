@@ -1514,11 +1514,16 @@ async function renderUsers() {
                 <td>${u.total_score}</td>
                 <td>${u.wins}</td>
                 <td>${(u.jeff_karma > 0 ? '+' : '') + u.jeff_karma.toLocaleString()}</td>
-                <td><select class="role-select badge-select" data-uid="${u.id}" data-role="${u.role || 'player'}">
-                    <option value="player"${(u.role || 'player') === 'player' ? ' selected' : ''}>Player</option>
-                    <option value="tester"${u.role === 'tester' ? ' selected' : ''}>Tester</option>
-                    <option value="admin"${u.role === 'admin' ? ' selected' : ''}>Admin</option>
-                </select></td>
+                <td>${(() => {
+                    const r = u.role || 'player';
+                    const colors = { player: ['#e4f5e9','#008060'], tester: ['#e8eaf6','#3949ab'], admin: ['#fff4e4','#b86e00'] };
+                    const [bg, fg] = colors[r];
+                    return `<select class="role-select" data-uid="${u.id}" style="font-size:11px;font-weight:600;padding:3px 8px;border-radius:20px;border:none;cursor:pointer;appearance:none;-webkit-appearance:none;text-align:center;letter-spacing:0.2px;background:${bg};color:${fg};">
+                        <option value="player"${r === 'player' ? ' selected' : ''}>Player</option>
+                        <option value="tester"${r === 'tester' ? ' selected' : ''}>Tester</option>
+                        <option value="admin"${r === 'admin' ? ' selected' : ''}>Admin</option>
+                    </select>`;
+                })()}</td>
                 <td class="actions">
                     <button class="btn btn--plain btn--small btn-rename-user" data-id="${u.id}" data-name="${esc(u.name || '')}">Rename</button>
                     <button class="btn btn--danger btn--small btn-del-user" data-id="${u.id}" data-name="${esc(u.name || u.email)}">Delete</button>
@@ -1550,9 +1555,12 @@ async function renderUsers() {
                 ]);
             });
         });
+        const roleColors = { player: ['#e4f5e9','#008060'], tester: ['#e8eaf6','#3949ab'], admin: ['#fff4e4','#b86e00'] };
         usersList.querySelectorAll('.role-select').forEach(sel => {
             sel.addEventListener('change', async () => {
-                sel.dataset.role = sel.value;
+                const [bg, fg] = roleColors[sel.value] || roleColors.player;
+                sel.style.background = bg;
+                sel.style.color = fg;
                 await api.updateUserRole(sel.dataset.uid, sel.value);
                 showToast(`Role updated to ${sel.value}`);
             });
