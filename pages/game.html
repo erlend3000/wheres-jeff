@@ -1951,7 +1951,7 @@
 
         async function renderLiveView(container, mystery) {
             const answer = mystery.answer;
-            const guesses = await getSubmissions(mystery.id, testerOpts());
+            const guesses = isAdminViewer ? await getGuesses(mystery.id) : await getSubmissions(mystery.id, testerOpts());
             const isTime = mystery.type === 'time';
 
             container.innerHTML = `
@@ -2173,7 +2173,7 @@
         // ── Submitted (awaiting reveal) View ──
 
         async function renderSubmittedView(container, mystery, userGuess) {
-            const guesses = await getSubmissions(mystery.id, testerOpts());
+            const guesses = isAdminViewer ? await getGuesses(mystery.id) : await getSubmissions(mystery.id, testerOpts());
             const isTime = mystery.type === 'time';
 
             container.innerHTML = `
