@@ -564,12 +564,17 @@ async function openSeasonDetail(id) {
                             <td class="actions"><button class="btn btn--danger btn--small btn-rm-pending" data-email="${esc(p.email)}">Remove</button></td>
                         </tr>`).join('')}</tbody></table>` : ''}
                     ${members.length ? `<table class="admin-table" style="margin-top:4px">
-                        <thead><tr><th>Name</th><th>Score</th><th>Wins</th><th>Karma</th><th></th></tr></thead>
+                        <thead><tr><th>Name</th><th>Role</th><th>Score</th><th>Wins</th><th>Karma</th><th></th></tr></thead>
                         <tbody>${members.map(m => {
                             const s = seasonScores[m.user_id] || { score: 0, wins: 0, karma: 0 };
                             const k = s.karma;
+                            const role = m.role || 'player';
                             return `<tr>
                                 <td style="font-weight:500">${esc(m.profiles?.name || m.profiles?.email || m.user_id)}</td>
+                                <td><select class="role-select" data-uid="${m.user_id}" style="font-size:12px;padding:2px 4px;border-radius:4px;border:1px solid var(--admin-border);background:var(--admin-bg);color:var(--admin-text);">
+                                    <option value="player"${role === 'player' ? ' selected' : ''}>Player</option>
+                                    <option value="tester"${role === 'tester' ? ' selected' : ''}>Tester</option>
+                                </select></td>
                                 <td>${s.score}</td>
                                 <td>${s.wins}</td>
                                 <td>${(k > 0 ? '+' : '') + k.toLocaleString()}</td>
@@ -991,6 +996,12 @@ async function openSeasonDetail(id) {
                 await api.removeSeasonMember(id, btn.dataset.uid);
                 showToast('Member removed');
                 openSeasonDetail(id);
+            });
+        });
+        seasonDetail.querySelectorAll('.role-select').forEach(sel => {
+            sel.addEventListener('change', async () => {
+                await api.updateMemberRole(id, sel.dataset.uid, sel.value);
+                showToast(`Role updated to ${sel.value}`);
             });
         });
     } catch (err) {

@@ -93,7 +93,7 @@
             getNextMysteryInfo, getAppSetting,
             getGuesses, getUserGuess, submitGuess, submitTimeGuess, subscribeGuesses, subscribeMysteries,
             getMysteryLeaderboard, getSeasonLeaderboard,
-            checkSeasonAutoEnd, getSeasonWinners,
+            checkSeasonAutoEnd, getSeasonWinners, getSeasonTesterIds, resetTesterCache,
             formatTimeAgo, formatDistance, formatDistanceShort, formatCountdown, formatCountdownIn, formatMysteryDate,
             firstName, formatNumber, formatLocationLabel, reverseGeocode,
             timeToDecimal, decimalToTime, timeYearsDiff, formatTimeDifference, formatTimeDifferenceShort,
@@ -258,6 +258,7 @@
 
         let season = null;
         let isAdminViewer = false;
+        let testerIds = new Set();
         let memberSeasonIds = new Set();
         let mysteries = [];
         let currentMystery = null;
@@ -349,6 +350,8 @@
             wins: e => e.wins,
             karma: e => e.jeff_karma,
         };
+
+        function testerOpts() { return { testerIds, currentUserId: userId }; }
 
         function pinStorageKey(mysteryId) { return `wheff_pin_${mysteryId}`; }
 
@@ -488,6 +491,8 @@
             if (mysteriesChannel) { mysteriesChannel.unsubscribe(); mysteriesChannel = null; }
 
             if (season) {
+                resetTesterCache();
+                testerIds = isAdminViewer ? new Set() : await getSeasonTesterIds(season.id);
                 mysteries = await getSeasonMysteries(season.id);
                 currentMystery = getCurrentMystery(mysteries);
                 revealedMysteries = getRevealedMysteries(mysteries);
@@ -1946,7 +1951,7 @@
 
         async function renderLiveView(container, mystery) {
             const answer = mystery.answer;
-            const guesses = await getGuesses(mystery.id);
+            const guesses = await getGuesses(mystery.id, testerOpts());
             const isTime = mystery.type === 'time';
 
             container.innerHTML = `
@@ -2057,7 +2062,7 @@
                 const row = document.createElement('div');
                 row.innerHTML = submittedRow(newGuess, mystery.published_at, mystery.reveals_at, true);
                 list.appendChild(row.firstElementChild);
-            });
+            }, testerOpts());
         }
 
         function initGuessMap(mysteryId) {
@@ -2168,7 +2173,7 @@
         // ── Submitted (awaiting reveal) View ──
 
         async function renderSubmittedView(container, mystery, userGuess) {
-            const guesses = await getGuesses(mystery.id);
+            const guesses = await getGuesses(mystery.id, testerOpts());
             const isTime = mystery.type === 'time';
 
             container.innerHTML = `
@@ -2205,7 +2210,7 @@
                 const row = document.createElement('div');
                 row.innerHTML = submittedRow(newGuess, mystery.published_at, mystery.reveals_at, true);
                 list.appendChild(row.firstElementChild);
-            });
+            }, testerOpts());
         }
 
         function initSubmittedMap(userGuess) {
@@ -2279,7 +2284,7 @@
                 clearPinStorage(mystery.id);
             }
 
-            const leaderboard = await getMysteryLeaderboard(mystery.id, mystery.published_at, mystery.reveals_at);
+            const leaderboard = await getMysteryLeaderboard(mystery.id, mystery.published_at, mystery.reveals_at, testerOpts());
             const userEntry = isAdminViewer ? null : leaderboard.find(e => e.user_id === userId);
             let selectedEntry = userEntry || leaderboard[0] || null;
 
@@ -2355,7 +2360,7 @@
                         revealRefreshTimer = null;
                         const table = document.getElementById('results-table');
                         if (!table) return;
-                        const fresh = await getMysteryLeaderboard(mystery.id, mystery.published_at, mystery.reveals_at);
+                        const fresh = await getMysteryLeaderboard(mystery.id, mystery.published_at, mystery.reveals_at, testerOpts());
                         if (fresh.length <= leaderboard.length) { refreshCount++; scheduleRefresh(); return; }
                         leaderboard.length = 0;
                         leaderboard.push(...fresh);
@@ -3325,7 +3330,7 @@
                 return;
             }
 
-            const winners = await getSeasonWinners(season.id, winnersMode);
+            const winners = await getSeasonWinners(season.id, winnersMode, testerOpts());
             if (!winners) {
                 section.style.display = 'none';
                 container.innerHTML = '';
@@ -3614,7 +3619,7 @@
 
         async function fetchLeaderboardForMode(mode) {
             if (!cachedLeaderboardByMode[mode]) {
-                cachedLeaderboardByMode[mode] = await getSeasonLeaderboard(season.id, mode);
+                cachedLeaderboardByMode[mode] = await getSeasonLeaderboard(season.id, mode, testerOpts());
             }
             return cachedLeaderboardByMode[mode];
         }
@@ -3699,7 +3704,7 @@
 
         async function populateStats() {
             if (!season) return;
-            const board = cachedLeaderboardByMode[leaderboardMode] || await getSeasonLeaderboard(season.id, leaderboardMode);
+            const board = cachedLeaderboardByMode[leaderboardMode] || await getSeasonLeaderboard(season.id, leaderboardMode, testerOpts());
             const myEntry = board.find(e => e.user_id === userId);
 
             function setField(name, value) {
