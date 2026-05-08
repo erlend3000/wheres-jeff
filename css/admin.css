@@ -392,6 +392,22 @@ input[type="datetime-local"].form-input {
 .badge--admin     { background: #fff4e4; color: #b86e00; }
 .badge--tester    { background: #e8eaf6; color: #3949ab; }
 
+.badge-select {
+    font-size: 11px;
+    font-weight: 600;
+    padding: 3px 8px;
+    border-radius: 20px;
+    border: none;
+    cursor: pointer;
+    appearance: none;
+    -webkit-appearance: none;
+    text-align: center;
+    letter-spacing: 0.2px;
+}
+.badge-select[data-role="player"] { background: #e4f5e9; color: #008060; }
+.badge-select[data-role="tester"] { background: #e8eaf6; color: #3949ab; }
+.badge-select[data-role="admin"]  { background: #fff4e4; color: #b86e00; }
+
 /* === Detail view === */
 
 .detail-back {
