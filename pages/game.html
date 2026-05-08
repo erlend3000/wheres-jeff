@@ -492,7 +492,7 @@
 
             if (season) {
                 resetTesterCache();
-                testerIds = isAdminViewer ? new Set() : await getSeasonTesterIds(season.id);
+                testerIds = isAdminViewer ? new Set() : await getSeasonTesterIds();
                 mysteries = await getSeasonMysteries(season.id);
                 currentMystery = getCurrentMystery(mysteries);
                 revealedMysteries = getRevealedMysteries(mysteries);

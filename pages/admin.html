@@ -568,13 +568,11 @@ async function openSeasonDetail(id) {
                         <tbody>${members.map(m => {
                             const s = seasonScores[m.user_id] || { score: 0, wins: 0, karma: 0 };
                             const k = s.karma;
-                            const role = m.role || 'player';
+                            const role = m.profiles?.role || 'player';
+                            const badgeCls = role === 'admin' ? 'badge--admin' : role === 'tester' ? 'badge--tester' : 'badge--active';
                             return `<tr>
                                 <td style="font-weight:500">${esc(m.profiles?.name || m.profiles?.email || m.user_id)}</td>
-                                <td><select class="role-select" data-uid="${m.user_id}" style="font-size:12px;padding:2px 4px;border-radius:4px;border:1px solid var(--admin-border);background:var(--admin-bg);color:var(--admin-text);">
-                                    <option value="player"${role === 'player' ? ' selected' : ''}>Player</option>
-                                    <option value="tester"${role === 'tester' ? ' selected' : ''}>Tester</option>
-                                </select></td>
+                                <td><span class="badge ${badgeCls}">${role.charAt(0).toUpperCase() + role.slice(1)}</span></td>
                                 <td>${s.score}</td>
                                 <td>${s.wins}</td>
                                 <td>${(k > 0 ? '+' : '') + k.toLocaleString()}</td>
@@ -996,12 +994,6 @@ async function openSeasonDetail(id) {
                 await api.removeSeasonMember(id, btn.dataset.uid);
                 showToast('Member removed');
                 openSeasonDetail(id);
-            });
-        });
-        seasonDetail.querySelectorAll('.role-select').forEach(sel => {
-            sel.addEventListener('change', async () => {
-                await api.updateMemberRole(id, sel.dataset.uid, sel.value);
-                showToast(`Role updated to ${sel.value}`);
             });
         });
     } catch (err) {
@@ -1522,7 +1514,11 @@ async function renderUsers() {
                 <td>${u.total_score}</td>
                 <td>${u.wins}</td>
                 <td>${(u.jeff_karma > 0 ? '+' : '') + u.jeff_karma.toLocaleString()}</td>
-                <td>${u.is_admin ? '<span class="badge badge--admin">Admin</span>' : ''}</td>
+                <td><select class="role-select" data-uid="${u.id}" style="font-size:12px;padding:2px 4px;border-radius:4px;border:1px solid var(--admin-border);background:var(--admin-bg);color:var(--admin-text);">
+                    <option value="player"${(u.role || 'player') === 'player' ? ' selected' : ''}>Player</option>
+                    <option value="tester"${u.role === 'tester' ? ' selected' : ''}>Tester</option>
+                    <option value="admin"${u.role === 'admin' ? ' selected' : ''}>Admin</option>
+                </select></td>
                 <td class="actions">
                     <button class="btn btn--plain btn--small btn-rename-user" data-id="${u.id}" data-name="${esc(u.name || '')}">Rename</button>
                     <button class="btn btn--danger btn--small btn-del-user" data-id="${u.id}" data-name="${esc(u.name || u.email)}">Delete</button>
@@ -1552,6 +1548,12 @@ async function renderUsers() {
                     { label: 'Cancel' },
                     { label: 'Delete', cls: 'btn--danger', fn: async () => { await api.deleteUser(btn.dataset.id); showToast('User deleted'); renderUsers(); } }
                 ]);
+            });
+        });
+        usersList.querySelectorAll('.role-select').forEach(sel => {
+            sel.addEventListener('change', async () => {
+                await api.updateUserRole(sel.dataset.uid, sel.value);
+                showToast(`Role updated to ${sel.value}`);
             });
         });
     } catch (err) {

@@ -390,6 +390,7 @@ input[type="datetime-local"].form-input {
 .badge--live      { background: #e4f5e9; color: #008060; }
 .badge--revealed  { background: #e8eaf6; color: #3949ab; }
 .badge--admin     { background: #fff4e4; color: #b86e00; }
+.badge--tester    { background: #e8eaf6; color: #3949ab; }
 
 /* === Detail view === */
 
