@@ -91,7 +91,7 @@
         import {
             getUserSeasons, getAllSeasons, getSeasonMysteries, getCurrentMystery, getRevealedMysteries,
             getNextMysteryInfo, getAppSetting,
-            getGuesses, getUserGuess, submitGuess, submitTimeGuess, subscribeGuesses, subscribeMysteries,
+            getGuesses, getSubmissions, getUserGuess, submitGuess, submitTimeGuess, subscribeGuesses, subscribeMysteries,
             getMysteryLeaderboard, getSeasonLeaderboard,
             checkSeasonAutoEnd, getSeasonWinners, getSeasonTesterIds, resetTesterCache,
             formatTimeAgo, formatDistance, formatDistanceShort, formatCountdown, formatCountdownIn, formatMysteryDate,
@@ -1951,7 +1951,7 @@
 
         async function renderLiveView(container, mystery) {
             const answer = mystery.answer;
-            const guesses = await getGuesses(mystery.id, testerOpts());
+            const guesses = await getSubmissions(mystery.id, testerOpts());
             const isTime = mystery.type === 'time';
 
             container.innerHTML = `
@@ -2173,7 +2173,7 @@
         // ── Submitted (awaiting reveal) View ──
 
         async function renderSubmittedView(container, mystery, userGuess) {
-            const guesses = await getGuesses(mystery.id, testerOpts());
+            const guesses = await getSubmissions(mystery.id, testerOpts());
             const isTime = mystery.type === 'time';
 
             container.innerHTML = `
