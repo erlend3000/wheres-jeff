@@ -467,22 +467,42 @@ function wireWaitingImageUploads() {
 
 function renderSeasonMysteriesTable(mysteries) {
     if (!mysteries.length) return '<div class="card__body"><div class="empty-state" style="padding:16px 0">No mysteries in this game. Click "+ Add mystery" above.</div></div>';
+
+    const sorted = [...mysteries].sort((a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0));
+    const statuses = sorted.map(m => api.mysteryStatus(m));
+    const liveIdx = statuses.indexOf('live');
+    const nextScheduledIdx = statuses.indexOf('scheduled');
+
     return `<table class="admin-table">
         <thead><tr><th style="width:30px"></th><th>Location</th><th>Status</th><th>Publish</th><th>Reveal</th><th></th></tr></thead>
-        <tbody>${mysteries.map(m => {
-            const st = api.mysteryStatus(m);
-            const locked = st === 'live' || st === 'revealed';
+        <tbody>${sorted.map((m, i) => {
+            const st = statuses[i];
+            const isLive = st === 'live';
+            const locked = isLive || st === 'revealed';
+            const isNextScheduled = i === nextScheduledIdx;
+
+            const actionBtns = [];
+            if (isLive) {
+                actionBtns.push(`<button class="btn btn--plain btn--small btn-edit-reveal" data-id="${m.id}">Edit reveal</button>`);
+                actionBtns.push(`<button class="btn btn--small btn-reveal-now" data-id="${m.id}" style="background:#e8eaf6;color:#3949ab">Reveal now</button>`);
+            } else if (isNextScheduled) {
+                actionBtns.push(`<button class="btn btn--plain btn--small btn-edit-timing" data-id="${m.id}">Edit</button>`);
+                if (m.override) actionBtns.push(`<button class="btn btn--plain btn--small btn-reset-timing" data-id="${m.id}">Reset</button>`);
+                actionBtns.push(`<button class="btn btn--small btn-publish-now" data-id="${m.id}" style="background:#e4f5e9;color:#008060">Publish now</button>`);
+                actionBtns.push(`<button class="btn btn--danger btn--small btn-remove-mystery" data-id="${m.id}">Remove</button>`);
+            } else if (!locked) {
+                actionBtns.push(`<button class="btn btn--plain btn--small btn-edit-timing" data-id="${m.id}">Edit</button>`);
+                if (m.override) actionBtns.push(`<button class="btn btn--plain btn--small btn-reset-timing" data-id="${m.id}">Reset</button>`);
+                actionBtns.push(`<button class="btn btn--danger btn--small btn-remove-mystery" data-id="${m.id}">Remove</button>`);
+            }
+
             return `<tr ${locked ? '' : 'draggable="true"'} data-id="${m.id}" data-pub="${m.published_at || ''}" data-rev="${m.reveals_at || ''}" data-status="${st}">
-                <td style="${locked ? 'color:#ddd' : 'cursor:grab;color:#999'};text-align:center" title="${locked ? 'Cannot reorder (already active/revealed)' : 'Drag to reorder'}">${locked ? '—' : '⠿'}</td>
+                <td style="${locked ? 'visibility:hidden' : 'cursor:grab;color:#999'};text-align:center;width:30px" title="${locked ? '' : 'Drag to reorder'}">${locked ? '' : '⠿'}</td>
                 <td style="font-weight:500">${esc(m.title || '(untitled)')}${m.override ? ' <span style="color:var(--admin-accent);font-size:11px" title="Manual override">✎</span>' : ''}</td>
                 <td><span class="badge badge--${st}">${st}</span></td>
                 <td class="td-publish">${api.formatDate(m.published_at)}</td>
                 <td class="td-reveal">${api.formatDate(m.reveals_at)}</td>
-                <td class="actions">
-                    ${locked ? '' : `<button class="btn btn--plain btn--small btn-edit-timing" data-id="${m.id}">Edit</button>`}
-                    ${m.override && !locked ? `<button class="btn btn--plain btn--small btn-reset-timing" data-id="${m.id}">Reset</button>` : ''}
-                    ${locked ? '' : `<button class="btn btn--danger btn--small btn-remove-mystery" data-id="${m.id}">Remove</button>`}
-                </td>
+                <td class="actions">${actionBtns.join(' ')}</td>
             </tr>`;
         }).join('')}</tbody></table>`;
 }
@@ -652,12 +672,13 @@ async function openSeasonDetail(id) {
 
         async function recalcAndSave() {
             const config = getScheduleConfig();
-            if (!config.frequency_value || !season.frequency_value) return;
-            const fresh = await api.getMysteriesBySeason(id);
-            const scheduled = api.computeSchedule(fresh, config);
-            await api.batchUpdateTimings(scheduled.map(m => ({
-                id: m.id, published_at: m.published_at, reveals_at: m.reveals_at, override: m.override ?? false
-            })));
+            if (config.frequency_value && season.frequency_value) {
+                const fresh = await api.getMysteriesBySeason(id);
+                const scheduled = api.computeSchedule(fresh, config);
+                await api.batchUpdateTimings(scheduled.map(m => ({
+                    id: m.id, published_at: m.published_at, reveals_at: m.reveals_at, override: m.override ?? false
+                })));
+            }
             const updated = await api.getMysteriesBySeason(id);
             document.getElementById('season-mysteries-table').innerHTML = renderSeasonMysteriesTable(updated);
             const titleEl = seasonDetail.querySelector('#season-mysteries-table')?.closest('.card')?.querySelector('.card__title');
@@ -917,6 +938,75 @@ async function openSeasonDetail(id) {
                         }
                         showToast('Timing updated');
                     });
+                });
+            });
+
+            tbody.querySelectorAll('.btn-edit-reveal').forEach(btn => {
+                btn.addEventListener('click', () => {
+                    const row = btn.closest('tr');
+                    const mid = row.dataset.id;
+                    const revTd = row.querySelector('.td-reveal');
+                    const revVal = row.dataset.rev || '';
+                    revTd.innerHTML = `<input class="form-input" type="datetime-local" value="${api.toDatetimeLocal(revVal)}" style="font-size:12px;padding:4px 6px" id="edit-rev-${mid}">`;
+                    const saveBtn = document.createElement('button');
+                    saveBtn.className = 'btn btn--primary btn--small';
+                    saveBtn.textContent = 'Save';
+                    btn.replaceWith(saveBtn);
+                    saveBtn.addEventListener('click', async () => {
+                        const newRev = document.getElementById(`edit-rev-${mid}`).value;
+                        if (!newRev) return showToast('Reveal time is required', { type: 'error' });
+                        const revMs = new Date(newRev).getTime();
+                        const pubMs = new Date(row.dataset.pub).getTime();
+                        if (revMs <= pubMs) return showToast('Reveal must be after publish', { type: 'error' });
+                        if (revMs <= Date.now()) return showToast('Reveal must be in the future', { type: 'error' });
+                        showModal('Change reveal time?', '<p style="color:#616161">This will change when the live mystery is revealed to players. Are you sure?</p>', [
+                            { label: 'Cancel' },
+                            { label: 'Update', cls: 'btn--primary', fn: async () => {
+                                await api.updateMysteryTiming(mid, {
+                                    reveals_at: new Date(newRev).toISOString(),
+                                    override: true
+                                });
+                                await recalcAndSave();
+                                showToast('Reveal time updated');
+                            }}
+                        ]);
+                    });
+                });
+            });
+
+            tbody.querySelectorAll('.btn-reveal-now').forEach(btn => {
+                btn.addEventListener('click', () => {
+                    const row = btn.closest('tr');
+                    const title = row.querySelector('td:nth-child(2)')?.textContent?.trim() || 'this mystery';
+                    showModal('Reveal now?', `<p style="color:#616161">This will immediately reveal <strong>${esc(title)}</strong> to all players. This cannot be undone.</p>`, [
+                        { label: 'Cancel' },
+                        { label: 'Reveal now', cls: 'btn--primary', fn: async () => {
+                            await api.updateMysteryTiming(btn.dataset.id, {
+                                reveals_at: new Date().toISOString(),
+                                override: true
+                            });
+                            await recalcAndSave();
+                            showToast('Mystery revealed');
+                        }}
+                    ]);
+                });
+            });
+
+            tbody.querySelectorAll('.btn-publish-now').forEach(btn => {
+                btn.addEventListener('click', () => {
+                    const row = btn.closest('tr');
+                    const title = row.querySelector('td:nth-child(2)')?.textContent?.trim() || 'this mystery';
+                    showModal('Publish now?', `<p style="color:#616161">This will immediately publish <strong>${esc(title)}</strong>, making it live for all players. Are you sure?</p>`, [
+                        { label: 'Cancel' },
+                        { label: 'Publish now', cls: 'btn--primary', fn: async () => {
+                            await api.updateMysteryTiming(btn.dataset.id, {
+                                published_at: new Date().toISOString(),
+                                override: true
+                            });
+                            await recalcAndSave();
+                            showToast('Mystery published');
+                        }}
+                    ]);
                 });
             });
 
