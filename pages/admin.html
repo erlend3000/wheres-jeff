@@ -497,12 +497,12 @@ function renderSeasonMysteriesTable(mysteries) {
             }
 
             return `<tr ${locked ? '' : 'draggable="true"'} data-id="${m.id}" data-pub="${m.published_at || ''}" data-rev="${m.reveals_at || ''}" data-status="${st}">
-                <td style="${locked ? 'visibility:hidden' : 'cursor:grab;color:#999'};text-align:center;width:30px" title="${locked ? '' : 'Drag to reorder'}">${locked ? '' : '⠿'}</td>
+                <td style="${locked ? 'color:#ddd' : 'cursor:grab;color:#999'};text-align:center;width:30px" title="${locked ? 'Cannot reorder (already active/revealed)' : 'Drag to reorder'}">${locked ? '—' : '⠿'}</td>
                 <td style="font-weight:500">${esc(m.title || '(untitled)')}${m.override ? ' <span style="color:var(--admin-accent);font-size:11px" title="Manual override">✎</span>' : ''}</td>
                 <td><span class="badge badge--${st}">${st}</span></td>
                 <td class="td-publish">${api.formatDate(m.published_at)}</td>
                 <td class="td-reveal">${api.formatDate(m.reveals_at)}</td>
-                <td class="actions">${actionBtns.join(' ')}</td>
+                <td ${actionBtns.length ? 'class="actions"' : ''}>${actionBtns.join(' ')}</td>
             </tr>`;
         }).join('')}</tbody></table>`;
 }
@@ -881,14 +881,29 @@ async function openSeasonDetail(id) {
                     const mid = row.dataset.id;
                     const pubTd = row.querySelector('.td-publish');
                     const revTd = row.querySelector('.td-reveal');
+                    const actTd = row.querySelector('td:last-child');
                     const pubVal = row.dataset.pub || '';
                     const revVal = row.dataset.rev || '';
+                    const origPubHtml = pubTd.innerHTML;
+                    const origRevHtml = revTd.innerHTML;
+                    const origActHtml = actTd.innerHTML;
                     pubTd.innerHTML = `<input class="form-input" type="datetime-local" value="${api.toDatetimeLocal(pubVal)}" style="font-size:12px;padding:4px 6px" id="edit-pub-${mid}">`;
                     revTd.innerHTML = `<input class="form-input" type="datetime-local" value="${api.toDatetimeLocal(revVal)}" style="font-size:12px;padding:4px 6px" id="edit-rev-${mid}">`;
+                    actTd.className = 'actions';
+                    actTd.innerHTML = '';
                     const saveBtn = document.createElement('button');
                     saveBtn.className = 'btn btn--primary btn--small';
                     saveBtn.textContent = 'Save';
-                    btn.replaceWith(saveBtn);
+                    const cancelBtn = document.createElement('button');
+                    cancelBtn.className = 'btn btn--plain btn--small';
+                    cancelBtn.textContent = 'Cancel';
+                    actTd.append(saveBtn, cancelBtn);
+                    cancelBtn.addEventListener('click', () => {
+                        pubTd.innerHTML = origPubHtml;
+                        revTd.innerHTML = origRevHtml;
+                        actTd.innerHTML = origActHtml;
+                        wireMysteriesTable(seasonId, seasonObj);
+                    });
                     saveBtn.addEventListener('click', async () => {
                         const newPub = document.getElementById(`edit-pub-${mid}`).value;
                         const newRev = document.getElementById(`edit-rev-${mid}`).value;
@@ -946,12 +961,25 @@ async function openSeasonDetail(id) {
                     const row = btn.closest('tr');
                     const mid = row.dataset.id;
                     const revTd = row.querySelector('.td-reveal');
+                    const actTd = row.querySelector('td:last-child');
                     const revVal = row.dataset.rev || '';
+                    const origRevHtml = revTd.innerHTML;
+                    const origActHtml = actTd.innerHTML;
                     revTd.innerHTML = `<input class="form-input" type="datetime-local" value="${api.toDatetimeLocal(revVal)}" style="font-size:12px;padding:4px 6px" id="edit-rev-${mid}">`;
+                    actTd.className = 'actions';
+                    actTd.innerHTML = '';
                     const saveBtn = document.createElement('button');
                     saveBtn.className = 'btn btn--primary btn--small';
                     saveBtn.textContent = 'Save';
-                    btn.replaceWith(saveBtn);
+                    const cancelBtn = document.createElement('button');
+                    cancelBtn.className = 'btn btn--plain btn--small';
+                    cancelBtn.textContent = 'Cancel';
+                    actTd.append(saveBtn, cancelBtn);
+                    cancelBtn.addEventListener('click', () => {
+                        revTd.innerHTML = origRevHtml;
+                        actTd.innerHTML = origActHtml;
+                        wireMysteriesTable(seasonId, seasonObj);
+                    });
                     saveBtn.addEventListener('click', async () => {
                         const newRev = document.getElementById(`edit-rev-${mid}`).value;
                         if (!newRev) return showToast('Reveal time is required', { type: 'error' });
