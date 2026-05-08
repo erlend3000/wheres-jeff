@@ -1983,15 +1983,15 @@
                         if (!guessTime) return;
                         guessTime.detail_level = answer.detail_level;
                         const isAutoTime = !curveUserInteracted;
-                        try { await submitTimeGuess(mystery.id, guessTime, answer, mystery.published_at, mystery.reveals_at, { autoGuess: isAutoTime, autoSubmit: !isAutoTime }); } catch {}
+                        try { await submitTimeGuess(mystery.id, guessTime, { autoGuess: isAutoTime, autoSubmit: !isAutoTime }); } catch {}
                     } else {
                         if (guessMarker) {
                             const ll = guessMarker.getLatLng();
-                            try { await submitGuess(mystery.id, ll.lat, ll.lng, answer.lat, answer.lng, mystery.published_at, mystery.reveals_at, { autoSubmit: true }); } catch {}
+                            try { await submitGuess(mystery.id, ll.lat, ll.lng, { autoSubmit: true }); } catch {}
                         } else {
                             const lat = (Math.random() * 180) - 90;
                             const lng = (Math.random() * 360) - 180;
-                            try { await submitGuess(mystery.id, lat, lng, answer.lat, answer.lng, mystery.published_at, mystery.reveals_at, { autoGuess: true }); } catch {}
+                            try { await submitGuess(mystery.id, lat, lng, { autoGuess: true }); } catch {}
                         }
                     }
                 }
@@ -2032,7 +2032,7 @@
                         guessTime.detail_level = answer.detail_level;
                         setBannerLoading(submitBanner, true);
                         try {
-                            await submitTimeGuess(mystery.id, guessTime, answer, mystery.published_at, mystery.reveals_at);
+                            await submitTimeGuess(mystery.id, guessTime);
                             clearPinStorage(mystery.id);
                             await renderMysteryAtPosition();
                         } catch (e) {
@@ -2044,7 +2044,7 @@
                         const ll = guessMarker.getLatLng();
                         setBannerLoading(submitBanner, true);
                         try {
-                            await submitGuess(mystery.id, ll.lat, ll.lng, answer.lat, answer.lng, mystery.published_at, mystery.reveals_at);
+                            await submitGuess(mystery.id, ll.lat, ll.lng);
                             clearPinStorage(mystery.id);
                             await renderMysteryAtPosition();
                         } catch (e) {
@@ -2260,7 +2260,7 @@
                 if (existingGuess?.guess?.auto_guess === true) {
                     try {
                         if (savedPin.type === 'geo' && !isTime) {
-                            await submitGuess(mystery.id, savedPin.lat, savedPin.lng, answer.lat, answer.lng, mystery.published_at, mystery.reveals_at, { autoSubmit: true });
+                            await submitGuess(mystery.id, savedPin.lat, savedPin.lng, { autoSubmit: true });
                         } else if (savedPin.type === 'time' && isTime && savedPin.alpha != null) {
                             let tStart, tEnd;
                             if (answer.period_start && answer.period_end) {
@@ -2277,7 +2277,7 @@
                             const guessTime = decimalToTime(dec);
                             guessTime.detail_level = answer.detail_level;
                             guessTime.lobe = savedPin.alpha > 1 ? 1 : 0;
-                            await submitTimeGuess(mystery.id, guessTime, answer, mystery.published_at, mystery.reveals_at, { autoSubmit: true });
+                            await submitTimeGuess(mystery.id, guessTime, { autoSubmit: true });
                         }
                     } catch {}
                 }
