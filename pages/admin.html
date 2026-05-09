@@ -1074,6 +1074,13 @@ async function openSeasonDetail(id) {
         function wireSortHeaders(el, renderFn) {
             el.querySelectorAll('th[data-sc]').forEach(th => {
                 th.addEventListener('click', () => {
+                    const table = th.closest('table');
+                    if (table) {
+                        const ths = table.querySelectorAll('thead th');
+                        const widths = [...ths].map(h => h.offsetWidth);
+                        table.style.tableLayout = 'fixed';
+                        ths.forEach((h, i) => { h.style.width = widths[i] + 'px'; });
+                    }
                     const { sv: view, sc: col } = th.dataset;
                     const s = sortState[view];
                     if (s.col === col) s.asc = !s.asc;
