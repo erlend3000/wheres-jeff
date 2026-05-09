@@ -1239,7 +1239,7 @@ async function openSeasonDetail(id) {
             }
             container.innerHTML = `
                 <div style="font-size:13px;font-weight:600;margin-bottom:16px;color:var(--admin-text-secondary)">
-                    <span class="badge badge--live">live</span> ${esc(liveMystery.title || '(untitled)')}
+                    ${esc(liveMystery.title || '(untitled)')} <span class="badge badge--live" style="margin-left:8px">live</span>
                 </div>
                 <div id="live-table-body"><div class="empty-state" style="padding:12px 0">Loading...</div></div>`;
             if (!liveCache || liveCache.mysteryId !== liveMystery.id) {
