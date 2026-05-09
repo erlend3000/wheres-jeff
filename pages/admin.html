@@ -1084,7 +1084,7 @@ async function openSeasonDetail(id) {
                     const { sv: view, sc: col } = th.dataset;
                     const s = sortState[view];
                     if (s.col === col) s.asc = !s.asc;
-                    else { s.col = col; s.asc = !['score','wins','karma'].includes(col); }
+                    else { s.col = col; s.asc = !['score','wins','karma'].includes(col) && !(col === 'guess' && th.closest('[data-time]')); }
                     renderFn();
                 });
             });
@@ -1166,7 +1166,7 @@ async function openSeasonDetail(id) {
             return (g, col) => {
                 if (col === 'name') return g.profiles?.name || '';
                 if (col === 'time') return new Date(g.submitted_at).getTime() - new Date(publishedAt).getTime();
-                if (col === 'guess') return guessLabel(g, isTime);
+                if (col === 'guess') return isTime && g.guess?.year != null ? timeToDecimal(g.guess) : guessLabel(g, isTime);
                 if (col === 'distance') return g.distance_m ?? Infinity;
                 if (col === 'score') return g.score ?? 0;
                 return 0;
@@ -1207,7 +1207,7 @@ async function openSeasonDetail(id) {
             const { guesses } = roundsCache;
             if (!guesses.length) { body.innerHTML = '<div class="empty-state" style="padding:12px 0">No guesses</div>'; return; }
             const sorted = sortedBy(guesses, 'rounds', guessKeyFn(m.published_at, isTime));
-            body.innerHTML = `<table class="admin-table">
+            body.innerHTML = `<table class="admin-table"${isTime ? ' data-time' : ''}>
                 <thead><tr>${sortTh('rounds','name','Name')}${sortTh('rounds','time','Time')}${sortTh('rounds','guess','Guess')}${sortTh('rounds','distance','Distance')}${sortTh('rounds','score','Score')}</tr></thead>
                 <tbody>${sorted.map(g => {
                     const time = formatTimeAgo(g.submitted_at, m.published_at);
@@ -1250,7 +1250,7 @@ async function openSeasonDetail(id) {
             const isTime = liveMystery.type === 'time';
             if (!guesses.length) { body.innerHTML = '<div class="empty-state" style="padding:12px 0">No guesses yet</div>'; return; }
             const sorted = sortedBy(guesses, 'live', guessKeyFn(liveMystery.published_at, isTime));
-            body.innerHTML = `<table class="admin-table">
+            body.innerHTML = `<table class="admin-table"${isTime ? ' data-time' : ''}>
                 <thead><tr>${sortTh('live','name','Name')}${sortTh('live','time','Time')}${sortTh('live','guess','Guess')}${sortTh('live','score','Score')}</tr></thead>
                 <tbody>${sorted.map(g => {
                     const time = formatTimeAgo(g.submitted_at, liveMystery.published_at);
