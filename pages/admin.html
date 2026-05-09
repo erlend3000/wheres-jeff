@@ -245,7 +245,7 @@
 <script type="module">
 import { requireAuth, getProfile, validateName } from '../lib/auth.js';
 import * as api from '../lib/admin.js';
-import { checkSeasonAutoEnd, formatTimeTitle, timeToDecimal, decimalToTime, computeTimePeriod } from '../lib/game.js';
+import { checkSeasonAutoEnd, formatTimeTitle, timeToDecimal, decimalToTime, computeTimePeriod, formatTimeAgo, formatDistanceShort, formatTimeDifferenceShort, formatLocationLabel } from '../lib/game.js';
 import { showToast } from '../lib/toast.js';
 
 function setButtonLoading(btn, loading) {
@@ -583,22 +583,14 @@ async function openSeasonDetail(id) {
                             <td style="color:var(--admin-text-secondary)">${esc(p.email)}</td>
                             <td class="actions"><button class="btn btn--danger btn--small btn-rm-pending" data-email="${esc(p.email)}">Remove</button></td>
                         </tr>`).join('')}</tbody></table>` : ''}
-                    ${members.length ? `<table class="admin-table" style="margin-top:4px">
-                        <thead><tr><th>Name</th><th>Role</th><th>Score</th><th>Wins</th><th>Karma</th><th></th></tr></thead>
-                        <tbody>${members.map(m => {
-                            const s = seasonScores[m.user_id] || { score: 0, wins: 0, karma: 0 };
-                            const k = s.karma;
-                            const role = m.profiles?.role || 'player';
-                            const badgeCls = role === 'admin' ? 'badge--admin' : role === 'tester' ? 'badge--tester' : 'badge--active';
-                            return `<tr>
-                                <td style="font-weight:500">${esc(m.profiles?.name || m.profiles?.email || m.user_id)}</td>
-                                <td><span class="badge ${badgeCls}">${role.charAt(0).toUpperCase() + role.slice(1)}</span></td>
-                                <td>${s.score}</td>
-                                <td>${s.wins}</td>
-                                <td>${(k > 0 ? '+' : '') + k.toLocaleString()}</td>
-                                <td class="actions"><button class="btn btn--danger btn--small btn-rm-member" data-uid="${m.user_id}">Remove</button></td>
-                            </tr>`;
-                        }).join('')}</tbody></table>` : '<div class="empty-state" style="padding:16px 0">No members yet</div>'}
+                    ${members.length ? `
+                    <div id="score-tabs" style="display:flex;gap:0;margin:8px 0 12px;border:1px solid var(--admin-border);border-radius:6px;overflow:hidden;width:fit-content">
+                        <button class="score-tab active" data-stab="season" style="padding:5px 14px;font-size:12px;font-weight:600;border:none;cursor:pointer;background:#f0f0f0;color:var(--admin-text-secondary)">Season</button>
+                        <button class="score-tab" data-stab="rounds" style="padding:5px 14px;font-size:12px;font-weight:600;border:none;border-left:1px solid var(--admin-border);cursor:pointer;background:#fff;color:var(--admin-text-secondary)">Rounds</button>
+                        ${mysteries.some(m => api.mysteryStatus(m) === 'live') ? '<button class="score-tab" data-stab="live" style="padding:5px 14px;font-size:12px;font-weight:600;border:none;border-left:1px solid var(--admin-border);cursor:pointer;background:#fff;color:var(--admin-text-secondary)">Live</button>' : ''}
+                    </div>
+                    <div id="score-table-container"></div>
+                    ` : '<div class="empty-state" style="padding:16px 0">No members yet</div>'}
                 </div>
             </div>
             <div class="card" id="schedule-card" ${isEnded || !mysteries.length || hasLocked ? 'style="opacity:0.45;pointer-events:none"' : ''}>
@@ -1061,6 +1053,140 @@ async function openSeasonDetail(id) {
         }
 
         wireMysteriesTable(id, season);
+
+        // ── Score tab views ──
+        const revealedMysteries = mysteries
+            .filter(m => api.mysteryStatus(m) === 'revealed')
+            .sort((a, b) => new Date(a.reveals_at) - new Date(b.reveals_at));
+        const liveMystery = mysteries.find(m => api.mysteryStatus(m) === 'live');
+        let roundIndex = revealedMysteries.length - 1;
+        let activeScoreTab = 'season';
+
+        function renderSeasonScoreView() {
+            const container = document.getElementById('score-table-container');
+            if (!container) return;
+            container.innerHTML = `<table class="admin-table">
+                <thead><tr><th>Name</th><th>Role</th><th>Score</th><th>Wins</th><th>Karma</th><th></th></tr></thead>
+                <tbody>${members.map(m => {
+                    const s = seasonScores[m.user_id] || { score: 0, wins: 0, karma: 0 };
+                    const k = s.karma;
+                    const role = m.profiles?.role || 'player';
+                    const badgeCls = role === 'admin' ? 'badge--admin' : role === 'tester' ? 'badge--tester' : 'badge--active';
+                    return `<tr>
+                        <td style="font-weight:500">${esc(m.profiles?.name || m.profiles?.email || m.user_id)}</td>
+                        <td><span class="badge ${badgeCls}">${role.charAt(0).toUpperCase() + role.slice(1)}</span></td>
+                        <td>${s.score}</td>
+                        <td>${s.wins}</td>
+                        <td>${(k > 0 ? '+' : '') + k.toLocaleString()}</td>
+                        <td class="actions"><button class="btn btn--danger btn--small btn-rm-member" data-uid="${m.user_id}">Remove</button></td>
+                    </tr>`;
+                }).join('')}</tbody></table>`;
+            container.querySelectorAll('.btn-rm-member').forEach(btn => {
+                btn.addEventListener('click', async () => {
+                    await api.removeSeasonMember(id, btn.dataset.uid);
+                    showToast('Member removed');
+                    openSeasonDetail(id);
+                });
+            });
+        }
+
+        async function renderRoundsView() {
+            const container = document.getElementById('score-table-container');
+            if (!container || !revealedMysteries.length) {
+                if (container) container.innerHTML = '<div class="empty-state" style="padding:16px 0">No revealed mysteries yet</div>';
+                return;
+            }
+            const m = revealedMysteries[roundIndex];
+            const isTime = m.type === 'time';
+            const prevDisabled = roundIndex <= 0;
+            const nextDisabled = roundIndex >= revealedMysteries.length - 1;
+            container.innerHTML = `
+                <div style="display:flex;align-items:center;justify-content:center;gap:12px;margin-bottom:10px">
+                    <button id="round-prev" class="btn btn--plain btn--small" ${prevDisabled ? 'disabled style="opacity:0.3;pointer-events:none"' : ''}>&larr;</button>
+                    <span style="font-size:13px;font-weight:600">${esc(m.title || '(untitled)')} <span style="font-weight:400;color:var(--admin-text-secondary)">(${roundIndex + 1} / ${revealedMysteries.length})</span></span>
+                    <button id="round-next" class="btn btn--plain btn--small" ${nextDisabled ? 'disabled style="opacity:0.3;pointer-events:none"' : ''}>&rarr;</button>
+                </div>
+                <div id="round-table-body"><div class="empty-state" style="padding:12px 0">Loading...</div></div>`;
+            container.querySelector('#round-prev')?.addEventListener('click', () => { if (roundIndex > 0) { roundIndex--; renderRoundsView(); } });
+            container.querySelector('#round-next')?.addEventListener('click', () => { if (roundIndex < revealedMysteries.length - 1) { roundIndex++; renderRoundsView(); } });
+            const guesses = await api.getGuessesForMystery(m.id);
+            const body = container.querySelector('#round-table-body');
+            if (!body) return;
+            if (!guesses.length) { body.innerHTML = '<div class="empty-state" style="padding:12px 0">No guesses</div>'; return; }
+            body.innerHTML = `<table class="admin-table">
+                <thead><tr><th>Name</th><th>Time</th><th>Distance</th><th>Score</th></tr></thead>
+                <tbody>${guesses.map(g => {
+                    const time = formatTimeAgo(g.submitted_at, m.published_at);
+                    const dist = isTime ? formatTimeDifferenceShort(g.distance_m) : formatDistanceShort(g.distance_m);
+                    return `<tr>
+                        <td style="font-weight:500">${esc(g.profiles?.name || 'Unknown')}</td>
+                        <td>${time}</td>
+                        <td>${dist}</td>
+                        <td>${g.score}</td>
+                    </tr>`;
+                }).join('')}</tbody></table>`;
+        }
+
+        async function renderLiveView() {
+            const container = document.getElementById('score-table-container');
+            if (!container || !liveMystery) {
+                if (container) container.innerHTML = '<div class="empty-state" style="padding:16px 0">No live mystery</div>';
+                return;
+            }
+            const isTime = liveMystery.type === 'time';
+            container.innerHTML = `
+                <div style="font-size:13px;font-weight:600;margin-bottom:8px;color:var(--admin-text-secondary)">
+                    <span class="badge badge--live">live</span> ${esc(liveMystery.title || '(untitled)')}
+                </div>
+                <div id="live-table-body"><div class="empty-state" style="padding:12px 0">Loading...</div></div>`;
+            const guesses = await api.getGuessesForMystery(liveMystery.id);
+            const body = container.querySelector('#live-table-body');
+            if (!body) return;
+            if (!guesses.length) { body.innerHTML = '<div class="empty-state" style="padding:12px 0">No guesses yet</div>'; return; }
+            body.innerHTML = `<table class="admin-table">
+                <thead><tr><th>Name</th><th>Time</th><th>Guess</th><th>Score</th></tr></thead>
+                <tbody>${guesses.map(g => {
+                    const time = formatTimeAgo(g.submitted_at, liveMystery.published_at);
+                    let guessLabel = '—';
+                    if (isTime && g.guess?.year != null) {
+                        const yr = Math.abs(g.guess.year);
+                        const bc = g.guess.bc || g.guess.year < 0;
+                        guessLabel = String(yr) + (bc ? ' BC' : '');
+                        if (g.guess.month) guessLabel = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'][(g.guess.month - 1)] + ' ' + guessLabel;
+                        if (g.guess.day) guessLabel = g.guess.day + ' ' + guessLabel;
+                    } else if (g.guess?.location) {
+                        guessLabel = formatLocationLabel(g.guess.location);
+                    } else if (g.guess?.lat != null) {
+                        guessLabel = `${g.guess.lat.toFixed(2)}, ${g.guess.lng.toFixed(2)}`;
+                    }
+                    const isAuto = g.guess?.auto_guess === true;
+                    return `<tr${isAuto ? ' style="opacity:0.5"' : ''}>
+                        <td style="font-weight:500">${esc(g.profiles?.name || 'Unknown')}${isAuto ? ' <span style="font-size:10px">(auto)</span>' : ''}</td>
+                        <td>${time}</td>
+                        <td>${esc(guessLabel)}</td>
+                        <td>${g.score}</td>
+                    </tr>`;
+                }).join('')}</tbody></table>`;
+        }
+
+        function switchScoreTab(tab) {
+            activeScoreTab = tab;
+            seasonDetail.querySelectorAll('.score-tab').forEach(btn => {
+                const isActive = btn.dataset.stab === tab;
+                btn.classList.toggle('active', isActive);
+                btn.style.background = isActive ? '#f0f0f0' : '#fff';
+            });
+            if (tab === 'season') renderSeasonScoreView();
+            else if (tab === 'rounds') renderRoundsView();
+            else if (tab === 'live') renderLiveView();
+        }
+
+        seasonDetail.querySelectorAll('.score-tab').forEach(btn => {
+            btn.addEventListener('click', () => switchScoreTab(btn.dataset.stab));
+        });
+
+        if (members.length) renderSeasonScoreView();
+
         seasonDetail.querySelector('#btn-season-back').addEventListener('click', renderSeasons);
         seasonDetail.querySelector('#btn-save-settings')?.addEventListener('click', async () => {
             const name = document.getElementById('season-rename').value.trim();
@@ -1103,13 +1229,6 @@ async function openSeasonDetail(id) {
         seasonDetail.querySelectorAll('.btn-rm-pending').forEach(btn => {
             btn.addEventListener('click', async () => {
                 await api.removePendingMember(id, btn.dataset.email);
-                showToast('Member removed');
-                openSeasonDetail(id);
-            });
-        });
-        seasonDetail.querySelectorAll('.btn-rm-member').forEach(btn => {
-            btn.addEventListener('click', async () => {
-                await api.removeSeasonMember(id, btn.dataset.uid);
                 showToast('Member removed');
                 openSeasonDetail(id);
             });
