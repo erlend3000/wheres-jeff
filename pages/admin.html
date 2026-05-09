@@ -1061,13 +1061,55 @@ async function openSeasonDetail(id) {
         const liveMystery = mysteries.find(m => api.mysteryStatus(m) === 'live');
         let roundIndex = revealedMysteries.length - 1;
         let activeScoreTab = 'season';
+        const sortState = { season: { col: 'score', asc: false }, rounds: { col: 'score', asc: false }, live: { col: 'score', asc: false } };
+        let roundsCache = null;
+        let liveCache = null;
+
+        function sortTh(view, col, label) {
+            const s = sortState[view];
+            const arrow = s.col === col ? (s.asc ? ' ↑' : ' ↓') : '';
+            return `<th style="cursor:pointer;user-select:none" data-sv="${view}" data-sc="${col}">${label}${arrow}</th>`;
+        }
+
+        function wireSortHeaders(el, renderFn) {
+            el.querySelectorAll('th[data-sc]').forEach(th => {
+                th.addEventListener('click', () => {
+                    const { sv: view, sc: col } = th.dataset;
+                    const s = sortState[view];
+                    if (s.col === col) s.asc = !s.asc;
+                    else { s.col = col; s.asc = !['score','wins','karma'].includes(col); }
+                    renderFn();
+                });
+            });
+        }
+
+        function sortedBy(arr, view, keyFn) {
+            const s = sortState[view];
+            return [...arr].sort((a, b) => {
+                let va = keyFn(a, s.col), vb = keyFn(b, s.col);
+                if (typeof va === 'string') { va = va.toLowerCase(); vb = (vb || '').toLowerCase(); }
+                if (va < vb) return s.asc ? -1 : 1;
+                if (va > vb) return s.asc ? 1 : -1;
+                return 0;
+            });
+        }
 
         function renderSeasonScoreView() {
             const container = document.getElementById('score-table-container');
             if (!container) return;
+            const keyFn = (m, col) => {
+                const s = seasonScores[m.user_id] || { score: 0, wins: 0, karma: 0 };
+                if (col === 'name') return m.profiles?.name || '';
+                if (col === 'role') return m.profiles?.role || 'player';
+                if (col === 'score') return s.score;
+                if (col === 'wins') return s.wins;
+                if (col === 'karma') return s.karma;
+                return 0;
+            };
+            const sorted = sortedBy(members, 'season', keyFn);
             container.innerHTML = `<table class="admin-table">
-                <thead><tr><th>Name</th><th>Role</th><th>Score</th><th>Wins</th><th>Karma</th>${isEnded ? '' : '<th></th>'}</tr></thead>
-                <tbody>${members.map(m => {
+                <thead><tr>${sortTh('season','name','Name')}${sortTh('season','role','Role')}${sortTh('season','score','Score')}${sortTh('season','wins','Wins')}${sortTh('season','karma','Karma')}${isEnded ? '' : '<th></th>'}</tr></thead>
+                <tbody>${sorted.map(m => {
                     const s = seasonScores[m.user_id] || { score: 0, wins: 0, karma: 0 };
                     const k = s.karma;
                     const role = m.profiles?.role || 'player';
@@ -1081,6 +1123,7 @@ async function openSeasonDetail(id) {
                         ${isEnded ? '' : `<td class="actions"><button class="btn btn--danger btn--small btn-rm-member" data-uid="${m.user_id}">Remove</button></td>`}
                     </tr>`;
                 }).join('')}</tbody></table>`;
+            wireSortHeaders(container, renderSeasonScoreView);
             container.querySelectorAll('.btn-rm-member').forEach(btn => {
                 btn.addEventListener('click', async () => {
                     await api.removeSeasonMember(id, btn.dataset.uid);
@@ -1112,6 +1155,17 @@ async function openSeasonDetail(id) {
             return '—';
         }
 
+        function guessKeyFn(publishedAt, isTime) {
+            return (g, col) => {
+                if (col === 'name') return g.profiles?.name || '';
+                if (col === 'time') return new Date(g.submitted_at).getTime() - new Date(publishedAt).getTime();
+                if (col === 'guess') return guessLabel(g, isTime);
+                if (col === 'distance') return g.distance_m ?? Infinity;
+                if (col === 'score') return g.score ?? 0;
+                return 0;
+            };
+        }
+
         async function renderRoundsView() {
             const container = document.getElementById('score-table-container');
             if (!container || !revealedMysteries.length) {
@@ -1119,7 +1173,6 @@ async function openSeasonDetail(id) {
                 return;
             }
             const m = revealedMysteries[roundIndex];
-            const isTime = m.type === 'time';
             const prevDisabled = roundIndex <= 0;
             const nextDisabled = roundIndex >= revealedMysteries.length - 1;
             container.innerHTML = `
@@ -1129,16 +1182,27 @@ async function openSeasonDetail(id) {
                     <button id="round-next" class="btn btn--plain btn--small" ${nextDisabled ? 'disabled style="opacity:0.3;pointer-events:none"' : ''}>&rarr;</button>
                 </div>
                 <div id="round-table-body"><div class="empty-state" style="padding:12px 0">Loading...</div></div>`;
-            container.querySelector('#round-prev')?.addEventListener('click', () => { if (roundIndex > 0) { roundIndex--; renderRoundsView(); } });
-            container.querySelector('#round-next')?.addEventListener('click', () => { if (roundIndex < revealedMysteries.length - 1) { roundIndex++; renderRoundsView(); } });
-            const guesses = await api.getGuessesForMystery(m.id);
-            await enrichLocations(guesses);
-            const body = container.querySelector('#round-table-body');
-            if (!body) return;
+            container.querySelector('#round-prev')?.addEventListener('click', () => { if (roundIndex > 0) { roundIndex--; roundsCache = null; renderRoundsView(); } });
+            container.querySelector('#round-next')?.addEventListener('click', () => { if (roundIndex < revealedMysteries.length - 1) { roundIndex++; roundsCache = null; renderRoundsView(); } });
+            if (!roundsCache || roundsCache.mysteryId !== m.id) {
+                const guesses = await api.getGuessesForMystery(m.id);
+                await enrichLocations(guesses);
+                roundsCache = { mysteryId: m.id, guesses };
+            }
+            renderRoundsTable();
+        }
+
+        function renderRoundsTable() {
+            const body = document.getElementById('round-table-body');
+            if (!body || !roundsCache) return;
+            const m = revealedMysteries[roundIndex];
+            const isTime = m.type === 'time';
+            const { guesses } = roundsCache;
             if (!guesses.length) { body.innerHTML = '<div class="empty-state" style="padding:12px 0">No guesses</div>'; return; }
+            const sorted = sortedBy(guesses, 'rounds', guessKeyFn(m.published_at, isTime));
             body.innerHTML = `<table class="admin-table">
-                <thead><tr><th>Name</th><th>Time</th><th>Guess</th><th>Distance</th><th>Score</th></tr></thead>
-                <tbody>${guesses.map(g => {
+                <thead><tr>${sortTh('rounds','name','Name')}${sortTh('rounds','time','Time')}${sortTh('rounds','guess','Guess')}${sortTh('rounds','distance','Distance')}${sortTh('rounds','score','Score')}</tr></thead>
+                <tbody>${sorted.map(g => {
                     const time = formatTimeAgo(g.submitted_at, m.published_at);
                     const dist = isTime ? formatTimeDifferenceShort(g.distance_m) : formatDistanceShort(g.distance_m);
                     const isAuto = g.guess?.auto_guess === true;
@@ -1150,6 +1214,7 @@ async function openSeasonDetail(id) {
                         <td>${g.score}</td>
                     </tr>`;
                 }).join('')}</tbody></table>`;
+            wireSortHeaders(body, renderRoundsTable);
         }
 
         async function renderLiveView() {
@@ -1158,20 +1223,29 @@ async function openSeasonDetail(id) {
                 if (container) container.innerHTML = '<div class="empty-state" style="padding:16px 0">No live mystery</div>';
                 return;
             }
-            const isTime = liveMystery.type === 'time';
             container.innerHTML = `
                 <div style="font-size:13px;font-weight:600;margin-bottom:16px;color:var(--admin-text-secondary)">
                     <span class="badge badge--live">live</span> ${esc(liveMystery.title || '(untitled)')}
                 </div>
                 <div id="live-table-body"><div class="empty-state" style="padding:12px 0">Loading...</div></div>`;
-            const guesses = await api.getGuessesForMystery(liveMystery.id);
-            await enrichLocations(guesses);
-            const body = container.querySelector('#live-table-body');
-            if (!body) return;
+            if (!liveCache || liveCache.mysteryId !== liveMystery.id) {
+                const guesses = await api.getGuessesForMystery(liveMystery.id);
+                await enrichLocations(guesses);
+                liveCache = { mysteryId: liveMystery.id, guesses };
+            }
+            renderLiveTable();
+        }
+
+        function renderLiveTable() {
+            const body = document.getElementById('live-table-body');
+            if (!body || !liveCache) return;
+            const { guesses } = liveCache;
+            const isTime = liveMystery.type === 'time';
             if (!guesses.length) { body.innerHTML = '<div class="empty-state" style="padding:12px 0">No guesses yet</div>'; return; }
+            const sorted = sortedBy(guesses, 'live', guessKeyFn(liveMystery.published_at, isTime));
             body.innerHTML = `<table class="admin-table">
-                <thead><tr><th>Name</th><th>Time</th><th>Guess</th><th>Score</th></tr></thead>
-                <tbody>${guesses.map(g => {
+                <thead><tr>${sortTh('live','name','Name')}${sortTh('live','time','Time')}${sortTh('live','guess','Guess')}${sortTh('live','score','Score')}</tr></thead>
+                <tbody>${sorted.map(g => {
                     const time = formatTimeAgo(g.submitted_at, liveMystery.published_at);
                     const isAuto = g.guess?.auto_guess === true;
                     return `<tr${isAuto ? ' style="opacity:0.5"' : ''}>
@@ -1181,6 +1255,7 @@ async function openSeasonDetail(id) {
                         <td>${g.score}</td>
                     </tr>`;
                 }).join('')}</tbody></table>`;
+            wireSortHeaders(body, renderLiveTable);
         }
 
         async function switchScoreTab(tab) {
