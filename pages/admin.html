@@ -558,12 +558,12 @@ async function openSeasonDetail(id) {
                     </div>
                 </div>
             </div>
-            <div class="card" ${ghostStyle}>
+            <div class="card">
                 <div class="card__header">
                     <span class="card__title">Members (${members.length})</span>
                 </div>
                 <div class="card__body">
-                    <div class="form-row" style="margin-bottom:8px">
+                    ${isEnded ? '' : `<div class="form-row" style="margin-bottom:8px">
                         <div class="form-group" style="flex:1">
                             <select class="form-input" id="add-member-select">
                                 <option value="">Add existing user...</option>
@@ -582,7 +582,7 @@ async function openSeasonDetail(id) {
                         <tbody>${pendingMembers.map(p => `<tr>
                             <td style="color:var(--admin-text-secondary)">${esc(p.email)}</td>
                             <td class="actions"><button class="btn btn--danger btn--small btn-rm-pending" data-email="${esc(p.email)}">Remove</button></td>
-                        </tr>`).join('')}</tbody></table>` : ''}
+                        </tr>`).join('')}</tbody></table>` : ''}`}
                     ${members.length ? `
                     <div id="score-tabs" style="display:flex;gap:0;margin:12px 0 20px;border:1px solid var(--admin-border);border-radius:6px;overflow:hidden;width:fit-content">
                         <button class="score-tab active" data-stab="season" style="padding:5px 14px;font-size:12px;font-weight:600;border:none;cursor:pointer;background:#f0f0f0;color:var(--admin-text-secondary)">Game</button>
@@ -1066,7 +1066,7 @@ async function openSeasonDetail(id) {
             const container = document.getElementById('score-table-container');
             if (!container) return;
             container.innerHTML = `<table class="admin-table">
-                <thead><tr><th>Name</th><th>Role</th><th>Score</th><th>Wins</th><th>Karma</th><th></th></tr></thead>
+                <thead><tr><th>Name</th><th>Role</th><th>Score</th><th>Wins</th><th>Karma</th>${isEnded ? '' : '<th></th>'}</tr></thead>
                 <tbody>${members.map(m => {
                     const s = seasonScores[m.user_id] || { score: 0, wins: 0, karma: 0 };
                     const k = s.karma;
@@ -1078,7 +1078,7 @@ async function openSeasonDetail(id) {
                         <td>${s.score}</td>
                         <td>${s.wins}</td>
                         <td>${(k > 0 ? '+' : '') + k.toLocaleString()}</td>
-                        <td class="actions"><button class="btn btn--danger btn--small btn-rm-member" data-uid="${m.user_id}">Remove</button></td>
+                        ${isEnded ? '' : `<td class="actions"><button class="btn btn--danger btn--small btn-rm-member" data-uid="${m.user_id}">Remove</button></td>`}
                     </tr>`;
                 }).join('')}</tbody></table>`;
             container.querySelectorAll('.btn-rm-member').forEach(btn => {
@@ -1183,16 +1183,19 @@ async function openSeasonDetail(id) {
                 }).join('')}</tbody></table>`;
         }
 
-        function switchScoreTab(tab) {
+        async function switchScoreTab(tab) {
             activeScoreTab = tab;
             seasonDetail.querySelectorAll('.score-tab').forEach(btn => {
                 const isActive = btn.dataset.stab === tab;
                 btn.classList.toggle('active', isActive);
                 btn.style.background = isActive ? '#f0f0f0' : '#fff';
             });
+            const container = document.getElementById('score-table-container');
+            if (container) container.style.minHeight = container.offsetHeight + 'px';
             if (tab === 'season') renderSeasonScoreView();
-            else if (tab === 'rounds') renderRoundsView();
-            else if (tab === 'live') renderLiveView();
+            else if (tab === 'rounds') await renderRoundsView();
+            else if (tab === 'live') await renderLiveView();
+            if (container) container.style.minHeight = '';
         }
 
         seasonDetail.querySelectorAll('.score-tab').forEach(btn => {
