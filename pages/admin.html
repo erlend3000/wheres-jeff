@@ -245,7 +245,7 @@
 <script type="module">
 import { requireAuth, getProfile, validateName } from '../lib/auth.js';
 import * as api from '../lib/admin.js';
-import { checkSeasonAutoEnd, formatTimeTitle, timeToDecimal, decimalToTime, computeTimePeriod, formatTimeAgo, formatDistanceShort, formatTimeDifferenceShort, formatLocationLabel } from '../lib/game.js';
+import { checkSeasonAutoEnd, formatTimeTitle, timeToDecimal, decimalToTime, computeTimePeriod, formatTimeAgo, formatDistanceShort, formatTimeDifferenceShort, formatLocationLabel, reverseGeocode } from '../lib/game.js';
 import { showToast } from '../lib/toast.js';
 
 function setButtonLoading(btn, loading) {
@@ -1090,6 +1090,14 @@ async function openSeasonDetail(id) {
             });
         }
 
+        async function enrichLocations(guesses) {
+            await Promise.all(guesses.map(async g => {
+                if (g.guess?.lat != null && (!g.guess.location || !g.guess.location.length)) {
+                    try { g.guess.location = await reverseGeocode(g.guess.lat, g.guess.lng); } catch (e) {}
+                }
+            }));
+        }
+
         function guessLabel(g, isTime) {
             if (isTime && g.guess?.year != null) {
                 const yr = Math.abs(g.guess.year);
@@ -1124,6 +1132,7 @@ async function openSeasonDetail(id) {
             container.querySelector('#round-prev')?.addEventListener('click', () => { if (roundIndex > 0) { roundIndex--; renderRoundsView(); } });
             container.querySelector('#round-next')?.addEventListener('click', () => { if (roundIndex < revealedMysteries.length - 1) { roundIndex++; renderRoundsView(); } });
             const guesses = await api.getGuessesForMystery(m.id);
+            await enrichLocations(guesses);
             const body = container.querySelector('#round-table-body');
             if (!body) return;
             if (!guesses.length) { body.innerHTML = '<div class="empty-state" style="padding:12px 0">No guesses</div>'; return; }
@@ -1156,6 +1165,7 @@ async function openSeasonDetail(id) {
                 </div>
                 <div id="live-table-body"><div class="empty-state" style="padding:12px 0">Loading...</div></div>`;
             const guesses = await api.getGuessesForMystery(liveMystery.id);
+            await enrichLocations(guesses);
             const body = container.querySelector('#live-table-body');
             if (!body) return;
             if (!guesses.length) { body.innerHTML = '<div class="empty-state" style="padding:12px 0">No guesses yet</div>'; return; }
