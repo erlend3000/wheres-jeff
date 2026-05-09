@@ -1067,20 +1067,14 @@ async function openSeasonDetail(id) {
 
         function sortTh(view, col, label) {
             const s = sortState[view];
-            const arrow = s.col === col ? (s.asc ? ' ↑' : ' ↓') : '';
-            return `<th style="cursor:pointer;user-select:none" data-sv="${view}" data-sc="${col}">${label}${arrow}</th>`;
+            const active = s.col === col;
+            const arrow = active ? (s.asc ? '↑' : '↓') : '↓';
+            return `<th style="cursor:pointer;user-select:none" data-sv="${view}" data-sc="${col}">${label}<span style="margin-left:3px;${active ? '' : 'visibility:hidden'}">${arrow}</span></th>`;
         }
 
         function wireSortHeaders(el, renderFn) {
             el.querySelectorAll('th[data-sc]').forEach(th => {
                 th.addEventListener('click', () => {
-                    const table = th.closest('table');
-                    if (table) {
-                        const ths = table.querySelectorAll('thead th');
-                        const widths = [...ths].map(h => h.offsetWidth);
-                        table.style.tableLayout = 'fixed';
-                        ths.forEach((h, i) => { h.style.width = widths[i] + 'px'; });
-                    }
                     const { sv: view, sc: col } = th.dataset;
                     const s = sortState[view];
                     if (s.col === col) s.asc = !s.asc;
