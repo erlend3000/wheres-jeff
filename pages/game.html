@@ -749,8 +749,8 @@
         }
 
         function drawScreenStroke(ctx, screenPts, w) {
-            ctx.beginPath();
             if (screenPts.length < 2) return;
+            ctx.beginPath();
             ctx.moveTo(screenPts[0].sx, screenPts[0].sy);
             for (let i = 1; i < screenPts.length - 1; i++) {
                 const cur = screenPts[i], next = screenPts[i + 1];
@@ -766,6 +766,12 @@
             const last = screenPts[screenPts.length - 1];
             ctx.lineTo(last.sx, last.sy);
             ctx.stroke();
+        }
+
+        function tileHash(ix, iy) {
+            let h = (ix * 374761393 + iy * 668265263) | 0;
+            h = ((h ^ (h >> 13)) * 1274126177) | 0;
+            return ((h ^ (h >> 16)) & 0x7fffffff) / 0x7fffffff;
         }
 
         function drawCurve() {
@@ -786,12 +792,6 @@
             const tileStartY = Math.floor((vy - h / 2 / scale) / tileSize) * tileSize;
             const tileEndX = Math.ceil((vx + w / 2 / scale) / tileSize) * tileSize;
             const tileEndY = Math.ceil((vy + h / 2 / scale) / tileSize) * tileSize;
-
-            function tileHash(ix, iy) {
-                let h = (ix * 374761393 + iy * 668265263) | 0;
-                h = ((h ^ (h >> 13)) * 1274126177) | 0;
-                return ((h ^ (h >> 16)) & 0x7fffffff) / 0x7fffffff;
-            }
 
             for (let gx = tileStartX; gx <= tileEndX; gx += tileSize) {
                 for (let gy = tileStartY; gy <= tileEndY; gy += tileSize) {
@@ -2869,12 +2869,6 @@
             const tileEndX = Math.ceil((vx + w / 2 / scale) / tileSize) * tileSize;
             const tileEndY = Math.ceil((vy + h / 2 / scale) / tileSize) * tileSize;
 
-            function tileHash(ix, iy) {
-                let h = (ix * 374761393 + iy * 668265263) | 0;
-                h = ((h ^ (h >> 13)) * 1274126177) | 0;
-                return ((h ^ (h >> 16)) & 0x7fffffff) / 0x7fffffff;
-            }
-
             for (let gx = tileStartX; gx <= tileEndX; gx += tileSize) {
                 for (let gy = tileStartY; gy <= tileEndY; gy += tileSize) {
                     const sx = w / 2 + (gx - vx) * scale;
@@ -3299,7 +3293,7 @@
                 });
             });
 
-            addWorldZoomControls(worldMap, mapEl);
+            addZoomControls(worldMap, mapEl, 'map-zoom map-zoom--top-left');
 
             lastWorldFit = dataBounds;
             function fitWorldMap() {
@@ -3457,31 +3451,22 @@
 
         function wait(ms) { return new Promise(r => setTimeout(r, ms)); }
 
-        function waitForVisible(el) {
+        function waitForVisible(el, timeoutMs = 5000) {
             return new Promise(resolve => {
                 const observer = new IntersectionObserver(([entry]) => {
                     if (entry.isIntersecting) {
                         observer.disconnect();
+                        clearTimeout(timer);
                         resolve();
                     }
                 }, { threshold: 0.3 });
                 observer.observe(el);
+                const timer = setTimeout(() => { observer.disconnect(); resolve(); }, timeoutMs);
             });
         }
 
-        function fireRevealConfetti() {
-            const mapEl = document.getElementById('result-map-container');
-            if (!mapEl || typeof confetti !== 'function') return;
-            const jPin = mapEl.querySelector('.world-pin--j');
-            if (!jPin) return;
-            const pinRect = jPin.getBoundingClientRect();
-            const cx = (pinRect.left + pinRect.right) / 2;
-            const cy = (pinRect.top + pinRect.bottom) / 2;
-            const originX = cx / window.innerWidth;
-            const originY = cy / window.innerHeight;
-            const toRight = cx < window.innerWidth / 2;
-            const angle = toRight ? 0 : 180;
-            const defaults = { origin: { x: originX, y: originY }, angle, colors: CONFETTI_COLORS, scalar: 1.4, drift: 0, ticks: 400 };
+        function confettiBurst(defaults) {
+            if (typeof confetti !== 'function') return;
             function fire(particleRatio, opts) {
                 confetti(Object.assign({}, defaults, opts, { particleCount: Math.floor(200 * particleRatio) }));
             }
@@ -3492,24 +3477,21 @@
             fire(0.1, { spread: 120, startVelocity: 45 });
         }
 
-        function fireConfetti(bannerEl, fromLeft) {
-            if (typeof confetti !== 'function') return;
-            const rect = bannerEl.getBoundingClientRect();
-            const originX = fromLeft ? 0 : 1;
-            const originY = (rect.top + rect.height / 2) / window.innerHeight;
-            const angle = fromLeft ? 45 : 135;
-            const defaults = { origin: { x: originX, y: originY }, angle, colors: CONFETTI_COLORS, scalar: 1.4, drift: 0, ticks: 400 };
+        function fireRevealConfetti() {
+            const mapEl = document.getElementById('result-map-container');
+            if (!mapEl) return;
+            const jPin = mapEl.querySelector('.world-pin--j');
+            if (!jPin) return;
+            const pinRect = jPin.getBoundingClientRect();
+            const cx = (pinRect.left + pinRect.right) / 2;
+            const cy = (pinRect.top + pinRect.bottom) / 2;
+            const toRight = cx < window.innerWidth / 2;
+            confettiBurst({ origin: { x: cx / window.innerWidth, y: cy / window.innerHeight }, angle: toRight ? 0 : 180, colors: CONFETTI_COLORS, scalar: 1.4, drift: 0, ticks: 400 });
+        }
 
-            function fire(particleRatio, opts) {
-                confetti(Object.assign({}, defaults, opts, {
-                    particleCount: Math.floor(200 * particleRatio),
-                }));
-            }
-            fire(0.25, { spread: 26, startVelocity: 55 });
-            fire(0.2, { spread: 60 });
-            fire(0.35, { spread: 100, decay: 0.95, scalar: 1.1 });
-            fire(0.1, { spread: 120, startVelocity: 25, decay: 0.95, scalar: 1.7 });
-            fire(0.1, { spread: 120, startVelocity: 45 });
+        function fireConfetti(bannerEl, fromLeft) {
+            const rect = bannerEl.getBoundingClientRect();
+            confettiBurst({ origin: { x: fromLeft ? 0 : 1, y: (rect.top + rect.height / 2) / window.innerHeight }, angle: fromLeft ? 45 : 135, colors: CONFETTI_COLORS, scalar: 1.4, drift: 0, ticks: 400 });
         }
 
         function startConfettiLoop() {
@@ -3710,9 +3692,9 @@
             function setField(name, value) {
                 const field = document.querySelector(`wheff-field[name="${name}"]`);
                 if (!field) return;
-                const waitForInput = () => {
+                const waitForInput = (attempts = 0) => {
                     const input = field.querySelector('.field__input');
-                    if (!input) return setTimeout(waitForInput, 100);
+                    if (!input) { if (attempts < 50) setTimeout(() => waitForInput(attempts + 1), 100); return; }
                     input.value = value;
                 };
                 waitForInput();
@@ -3734,24 +3716,9 @@
             pane.appendChild(tint);
         }
 
-        function addWorldZoomControls(map, mapEl) {
+        function addZoomControls(map, mapEl, className = 'map-zoom') {
             const ctrl = document.createElement('div');
-            ctrl.className = 'map-zoom map-zoom--top-left';
-            ctrl.innerHTML = `<button class="map-zoom__btn" data-dir="in">+</button><button class="map-zoom__btn" data-dir="out">&minus;</button>`;
-            mapEl.appendChild(ctrl);
-            L.DomEvent.disableClickPropagation(ctrl);
-            L.DomEvent.disableScrollPropagation(ctrl);
-            ctrl.querySelectorAll('.map-zoom__btn').forEach(btn => {
-                btn.addEventListener('click', () => {
-                    if (btn.dataset.dir === 'in') map.zoomIn();
-                    else map.zoomOut();
-                });
-            });
-        }
-
-        function addZoomControls(map, mapEl) {
-            const ctrl = document.createElement('div');
-            ctrl.className = 'map-zoom';
+            ctrl.className = className;
             ctrl.innerHTML = `<button class="map-zoom__btn" data-dir="in">+</button><button class="map-zoom__btn" data-dir="out">&minus;</button>`;
             mapEl.appendChild(ctrl);
             L.DomEvent.disableClickPropagation(ctrl);
