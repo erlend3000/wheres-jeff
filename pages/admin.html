@@ -518,9 +518,11 @@ async function openSeasonDetail(id) {
     seasonDetail.style.display = 'block';
     try {
         await checkSeasonAutoEnd(id);
-        const [seasons, members, mysteries, allUsers, seasonScores, pendingMembers] = await Promise.all([
+        const [seasons, members, mysteries, allUsers, seasonScoreResult, pendingMembers] = await Promise.all([
             api.getSeasons(), api.getSeasonMembers(id), api.getMysteriesBySeason(id), api.getUsers(), api.getSeasonScores(id), api.getPendingMembers(id)
         ]);
+        const seasonScores = seasonScoreResult.scores || seasonScoreResult;
+        const karmaByMystery = seasonScoreResult.karmaByMystery || {};
         const season = seasons.find(s => s.id === id);
         if (!season) { renderSeasons(); return; }
         const memberIds = new Set(members.map(m => m.user_id));
@@ -1162,13 +1164,15 @@ async function openSeasonDetail(id) {
             return '—';
         }
 
-        function guessKeyFn(publishedAt, isTime) {
+        function guessKeyFn(publishedAt, isTime, mysteryId) {
+            const mKarma = karmaByMystery[mysteryId] || {};
             return (g, col) => {
                 if (col === 'name') return g.profiles?.name || '';
                 if (col === 'time') return new Date(g.submitted_at).getTime() - new Date(publishedAt).getTime();
                 if (col === 'guess') return isTime && g.guess?.year != null ? timeToDecimal(g.guess) : guessLabel(g, isTime);
                 if (col === 'distance') return g.distance_m ?? Infinity;
                 if (col === 'score') return g.score ?? 0;
+                if (col === 'karma') return mKarma[g.user_id] ?? 0;
                 return 0;
             };
         }
@@ -1206,19 +1210,22 @@ async function openSeasonDetail(id) {
             const isTime = m.type === 'time';
             const { guesses } = roundsCache;
             if (!guesses.length) { body.innerHTML = '<div class="empty-state" style="padding:12px 0">No guesses</div>'; return; }
-            const sorted = sortedBy(guesses, 'rounds', guessKeyFn(m.published_at, isTime));
+            const mKarma = karmaByMystery[m.id] || {};
+            const sorted = sortedBy(guesses, 'rounds', guessKeyFn(m.published_at, isTime, m.id));
             body.innerHTML = `<table class="admin-table"${isTime ? ' data-time' : ''}>
-                <thead><tr>${sortTh('rounds','name','Name')}${sortTh('rounds','time','Time')}${sortTh('rounds','guess','Guess')}${sortTh('rounds','distance','Distance')}${sortTh('rounds','score','Score')}</tr></thead>
+                <thead><tr>${sortTh('rounds','name','Name')}${sortTh('rounds','time','Time')}${sortTh('rounds','guess','Guess')}${sortTh('rounds','distance','Distance')}${sortTh('rounds','score','Score')}${sortTh('rounds','karma','Karma')}</tr></thead>
                 <tbody>${sorted.map(g => {
                     const time = formatTimeAgo(g.submitted_at, m.published_at);
                     const dist = isTime ? formatTimeDifferenceShort(g.distance_m) : formatDistanceShort(g.distance_m);
                     const isAuto = g.guess?.auto_guess === true;
+                    const k = mKarma[g.user_id] ?? 0;
                     return `<tr${isAuto ? ' style="opacity:0.5"' : ''}>
                         <td style="font-weight:500">${esc(g.profiles?.name || 'Unknown')}${isAuto ? ' (auto)' : ''}</td>
                         <td>${time}</td>
                         <td>${esc(guessLabel(g, isTime))}</td>
                         <td>${dist}</td>
                         <td>${g.score}</td>
+                        <td>${(k > 0 ? '+' : '') + k.toLocaleString()}</td>
                     </tr>`;
                 }).join('')}</tbody></table>`;
             wireSortHeaders(body, renderRoundsTable);
