@@ -1090,6 +1090,20 @@ async function openSeasonDetail(id) {
             });
         }
 
+        function guessLabel(g, isTime) {
+            if (isTime && g.guess?.year != null) {
+                const yr = Math.abs(g.guess.year);
+                const bc = g.guess.bc || g.guess.year < 0;
+                let label = String(yr) + (bc ? ' BC' : '');
+                if (g.guess.month) label = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'][(g.guess.month - 1)] + ' ' + label;
+                if (g.guess.day) label = g.guess.day + ' ' + label;
+                return label;
+            }
+            if (g.guess?.location?.length) return formatLocationLabel(g.guess.location);
+            if (g.guess?.lat != null) return `${g.guess.lat.toFixed(2)}, ${g.guess.lng.toFixed(2)}`;
+            return '—';
+        }
+
         async function renderRoundsView() {
             const container = document.getElementById('score-table-container');
             if (!container || !revealedMysteries.length) {
@@ -1118,23 +1132,11 @@ async function openSeasonDetail(id) {
                 <tbody>${guesses.map(g => {
                     const time = formatTimeAgo(g.submitted_at, m.published_at);
                     const dist = isTime ? formatTimeDifferenceShort(g.distance_m) : formatDistanceShort(g.distance_m);
-                    let guessLabel = '—';
-                    if (isTime && g.guess?.year != null) {
-                        const yr = Math.abs(g.guess.year);
-                        const bc = g.guess.bc || g.guess.year < 0;
-                        guessLabel = String(yr) + (bc ? ' BC' : '');
-                        if (g.guess.month) guessLabel = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'][(g.guess.month - 1)] + ' ' + guessLabel;
-                        if (g.guess.day) guessLabel = g.guess.day + ' ' + guessLabel;
-                    } else if (g.guess?.location) {
-                        guessLabel = formatLocationLabel(g.guess.location);
-                    } else if (g.guess?.lat != null) {
-                        guessLabel = `${g.guess.lat.toFixed(2)}, ${g.guess.lng.toFixed(2)}`;
-                    }
                     const isAuto = g.guess?.auto_guess === true;
                     return `<tr${isAuto ? ' style="opacity:0.5"' : ''}>
-                        <td style="font-weight:500">${esc(g.profiles?.name || 'Unknown')}${isAuto ? ' <span style="font-size:10px">(auto)</span>' : ''}</td>
+                        <td style="font-weight:500">${esc(g.profiles?.name || 'Unknown')}${isAuto ? ' (auto)' : ''}</td>
                         <td>${time}</td>
-                        <td>${esc(guessLabel)}</td>
+                        <td>${esc(guessLabel(g, isTime))}</td>
                         <td>${dist}</td>
                         <td>${g.score}</td>
                     </tr>`;
@@ -1161,23 +1163,11 @@ async function openSeasonDetail(id) {
                 <thead><tr><th>Name</th><th>Time</th><th>Guess</th><th>Score</th></tr></thead>
                 <tbody>${guesses.map(g => {
                     const time = formatTimeAgo(g.submitted_at, liveMystery.published_at);
-                    let guessLabel = '—';
-                    if (isTime && g.guess?.year != null) {
-                        const yr = Math.abs(g.guess.year);
-                        const bc = g.guess.bc || g.guess.year < 0;
-                        guessLabel = String(yr) + (bc ? ' BC' : '');
-                        if (g.guess.month) guessLabel = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'][(g.guess.month - 1)] + ' ' + guessLabel;
-                        if (g.guess.day) guessLabel = g.guess.day + ' ' + guessLabel;
-                    } else if (g.guess?.location) {
-                        guessLabel = formatLocationLabel(g.guess.location);
-                    } else if (g.guess?.lat != null) {
-                        guessLabel = `${g.guess.lat.toFixed(2)}, ${g.guess.lng.toFixed(2)}`;
-                    }
                     const isAuto = g.guess?.auto_guess === true;
                     return `<tr${isAuto ? ' style="opacity:0.5"' : ''}>
-                        <td style="font-weight:500">${esc(g.profiles?.name || 'Unknown')}${isAuto ? ' <span style="font-size:10px">(auto)</span>' : ''}</td>
+                        <td style="font-weight:500">${esc(g.profiles?.name || 'Unknown')}${isAuto ? ' (auto)' : ''}</td>
                         <td>${time}</td>
-                        <td>${esc(guessLabel)}</td>
+                        <td>${esc(guessLabel(g, isTime))}</td>
                         <td>${g.score}</td>
                     </tr>`;
                 }).join('')}</tbody></table>`;
