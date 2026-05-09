@@ -248,6 +248,10 @@ import * as api from '../lib/admin.js';
 import { checkSeasonAutoEnd, formatTimeTitle, timeToDecimal, decimalToTime, computeTimePeriod, formatTimeAgo, formatDistanceShort, formatTimeDifferenceShort, formatLocationLabel, reverseGeocode } from '../lib/game.js';
 import { showToast } from '../lib/toast.js';
 
+const UNIT_MS = { seconds: 1000, minutes: 60000, hours: 3600000, days: 86400000, weeks: 604800000 };
+function toMs(value, unit) { return value * (UNIT_MS[unit] || 60000); }
+const ROLE_COLORS = { player: ['#e4f5e9','#008060'], tester: ['#e8eaf6','#3949ab'], admin: ['#fff4e4','#b86e00'] };
+
 function setButtonLoading(btn, loading) {
     if (loading) {
         const textColor = getComputedStyle(btn).color;
@@ -470,7 +474,6 @@ function renderSeasonMysteriesTable(mysteries) {
 
     const sorted = [...mysteries].sort((a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0));
     const statuses = sorted.map(m => api.mysteryStatus(m));
-    const liveIdx = statuses.indexOf('live');
     const nextScheduledIdx = statuses.indexOf('scheduled');
 
     return `<table class="admin-table">
@@ -519,7 +522,7 @@ async function openSeasonDetail(id) {
             api.getSeasons(), api.getSeasonMembers(id), api.getMysteriesBySeason(id), api.getUsers(), api.getSeasonScores(id), api.getPendingMembers(id)
         ]);
         const season = seasons.find(s => s.id === id);
-        if (!season) return;
+        if (!season) { renderSeasons(); return; }
         const memberIds = new Set(members.map(m => m.user_id));
         const available = allUsers.filter(u => !memberIds.has(u.id));
         const hasLocked = mysteries.some(m => { const st = api.mysteryStatus(m); return st === 'live' || st === 'revealed'; });
@@ -603,7 +606,7 @@ async function openSeasonDetail(id) {
                     <div class="form-row">
                         <div class="form-group" style="flex:1">
                             <label class="form-label">Start time</label>
-                            <input class="form-input" type="datetime-local" id="sched-start" value="${mysteries.length ? api.toDatetimeLocal(season.starts_at) : (() => { const n = new Date(); n.setSeconds(0,0); n.setMinutes(n.getMinutes()+1); return api.toDatetimeLocal(n.toISOString()); })()}" min="${(() => { const n = new Date(); n.setSeconds(0,0); n.setMinutes(n.getMinutes()+1); return api.toDatetimeLocal(n.toISOString()); })()}">
+                            ${(() => { const n = new Date(); n.setSeconds(0,0); n.setMinutes(n.getMinutes()+1); const minDt = api.toDatetimeLocal(n.toISOString()); const val = mysteries.length ? api.toDatetimeLocal(season.starts_at) : minDt; return `<input class="form-input" type="datetime-local" id="sched-start" value="${val}" min="${minDt}">`; })()}
                         </div>
                         <div class="form-group" style="flex:0.6">
                             <label class="form-label">Frequency</label>
@@ -638,13 +641,16 @@ async function openSeasonDetail(id) {
             </div>`;
 
         function getScheduleConfig() {
+            const startEl = document.getElementById('sched-start');
             const freqRaw = document.getElementById('sched-freq-val')?.value;
             const gapRaw = document.getElementById('sched-gap-val')?.value;
+            const freq = freqRaw !== '' ? parseInt(freqRaw, 10) : null;
+            const gap = gapRaw !== '' ? parseInt(gapRaw, 10) : null;
             return {
-                starts_at: document.getElementById('sched-start')?.value ? new Date(document.getElementById('sched-start').value).toISOString() : season.starts_at,
-                frequency_value: freqRaw !== '' ? parseInt(freqRaw) : null,
+                starts_at: startEl?.value ? new Date(startEl.value).toISOString() : season.starts_at,
+                frequency_value: Number.isFinite(freq) ? freq : null,
                 frequency_unit: document.getElementById('sched-freq-unit')?.value || 'minutes',
-                gap_value: gapRaw !== '' ? parseInt(gapRaw) : null,
+                gap_value: Number.isFinite(gap) ? gap : null,
                 gap_unit: document.getElementById('sched-gap-unit')?.value || 'minutes'
             };
         }
@@ -689,8 +695,8 @@ async function openSeasonDetail(id) {
             if (config.gap_value == null || config.gap_value < 0) {
                 return showToast('Set a valid gap (0 or more)', { type: 'error' });
             }
-            const freqMs = config.frequency_value * ({ seconds: 1000, minutes: 60000, hours: 3600000, days: 86400000, weeks: 604800000 }[config.frequency_unit] || 60000);
-            const gapMs = config.gap_value * ({ seconds: 1000, minutes: 60000, hours: 3600000, days: 86400000, weeks: 604800000 }[config.gap_unit] || 60000);
+            const freqMs = toMs(config.frequency_value, config.frequency_unit);
+            const gapMs = toMs(config.gap_value, config.gap_unit);
             if (gapMs >= freqMs) {
                 return showToast('Gap must be shorter than frequency', { type: 'error' });
             }
@@ -831,8 +837,8 @@ async function openSeasonDetail(id) {
 
                     const config = getScheduleConfig();
                     if (config.frequency_value && config.gap_value != null) {
-                        const freqMs = config.frequency_value * ({ seconds: 1000, minutes: 60000, hours: 3600000, days: 86400000, weeks: 604800000 }[config.frequency_unit] || 60000);
-                        const gapMs = config.gap_value * ({ seconds: 1000, minutes: 60000, hours: 3600000, days: 86400000, weeks: 604800000 }[config.gap_unit] || 60000);
+                        const freqMs = toMs(config.frequency_value, config.frequency_unit);
+                        const gapMs = toMs(config.gap_value, config.gap_unit);
                         const durationMs = freqMs - gapMs;
                         const allRows = [...tbody.querySelectorAll('tr')];
                         const dragIdx = allRows.findIndex(r => r.dataset.id === draggedId);
@@ -1327,7 +1333,10 @@ async function openSeasonDetail(id) {
             });
         });
     } catch (err) {
-        seasonDetail.innerHTML = `<div class="empty-state">Error: ${esc(err.message)}</div>`;
+        seasonDetail.innerHTML = `
+            <button class="detail-back" id="btn-season-back-err">&larr; All games</button>
+            <div class="empty-state" style="margin-top:16px">Error: ${esc(err.message)}</div>`;
+        seasonDetail.querySelector('#btn-season-back-err')?.addEventListener('click', renderSeasons);
     }
 }
 
@@ -1656,26 +1665,26 @@ function resetMysteryForm() {
 }
 
 function editTemplate(template) {
-    const m = template;
     pendingFile = null;
-    document.getElementById('mystery-edit-template-id').value = m.template_id;
-    document.getElementById('mystery-image-url').value = m.image_url || '';
-    resolvedLocationName = m.title || 'Unknown';
-    resolvedLocationLevels = m.answer?.location || [];
-    document.getElementById('mystery-type').value = m.type || 'location';
+    pendingDimensions = null;
+    document.getElementById('mystery-edit-template-id').value = template.template_id;
+    document.getElementById('mystery-image-url').value = template.image_url || '';
+    resolvedLocationName = template.title || 'Unknown';
+    resolvedLocationLevels = template.answer?.location || [];
+    document.getElementById('mystery-type').value = template.type || 'location';
     document.getElementById('mystery-form-title').textContent = 'Edit mystery';
     document.getElementById('btn-cancel-mystery').style.display = 'inline-flex';
     document.getElementById('btn-save-mystery').textContent = 'Update mystery';
-    if (m.image_url) {
-        previewImg.src = m.image_url;
+    if (template.image_url) {
+        previewImg.src = template.image_url;
         uploadPreview.style.display = 'block';
     } else {
         previewImg.src = '';
         uploadPreview.style.display = 'none';
     }
     if (answerMarker) { answerMap.removeLayer(answerMarker); answerMarker = null; }
-    if (m.type === 'time' && m.answer?.year != null) {
-        const a = m.answer;
+    if (template.type === 'time' && template.answer?.year != null) {
+        const a = template.answer;
         document.getElementById('time-detail-level').value = a.detail_level || 'year';
         document.getElementById('time-year').value = Math.abs(a.year);
         document.getElementById('time-bc').checked = a.bc || a.year < 0;
@@ -1690,8 +1699,8 @@ function editTemplate(template) {
         if (a.period_end) fillPeriodFields('period-end', a.period_end, a.detail_level);
         else clearPeriodFields('period-end');
         periodManuallyEdited = !!(a.period_start || a.period_end);
-    } else if (m.answer?.lat != null) {
-        const latlng = L.latLng(m.answer.lat, m.answer.lng);
+    } else if (template.answer?.lat != null) {
+        const latlng = L.latLng(template.answer.lat, template.answer.lng);
         answerMarker = L.marker(latlng).addTo(answerMap);
         answerMap.setView(latlng, 8);
         updateCoordsLabel(latlng);
@@ -1846,8 +1855,7 @@ async function renderUsers() {
                 <td>${(u.jeff_karma > 0 ? '+' : '') + u.jeff_karma.toLocaleString()}</td>
                 <td>${(() => {
                     const r = u.role || 'player';
-                    const colors = { player: ['#e4f5e9','#008060'], tester: ['#e8eaf6','#3949ab'], admin: ['#fff4e4','#b86e00'] };
-                    const [bg, fg] = colors[r];
+                    const [bg, fg] = ROLE_COLORS[r];
                     return `<select class="role-select" data-uid="${u.id}" style="font-size:11px;font-weight:600;padding:3px 8px;border-radius:20px;border:none;cursor:pointer;appearance:none;-webkit-appearance:none;text-align:center;letter-spacing:0.2px;background:${bg};color:${fg};">
                         <option value="player"${r === 'player' ? ' selected' : ''}>Player</option>
                         <option value="tester"${r === 'tester' ? ' selected' : ''}>Tester</option>
@@ -1885,10 +1893,9 @@ async function renderUsers() {
                 ]);
             });
         });
-        const roleColors = { player: ['#e4f5e9','#008060'], tester: ['#e8eaf6','#3949ab'], admin: ['#fff4e4','#b86e00'] };
         usersList.querySelectorAll('.role-select').forEach(sel => {
             sel.addEventListener('change', async () => {
-                const [bg, fg] = roleColors[sel.value] || roleColors.player;
+                const [bg, fg] = ROLE_COLORS[sel.value] || ROLE_COLORS.player;
                 sel.style.background = bg;
                 sel.style.color = fg;
                 await api.updateUserRole(sel.dataset.uid, sel.value);
