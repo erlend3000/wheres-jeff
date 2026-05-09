@@ -584,10 +584,10 @@ async function openSeasonDetail(id) {
                             <td class="actions"><button class="btn btn--danger btn--small btn-rm-pending" data-email="${esc(p.email)}">Remove</button></td>
                         </tr>`).join('')}</tbody></table>` : ''}
                     ${members.length ? `
-                    <div id="score-tabs" style="display:flex;gap:0;margin:8px 0 12px;border:1px solid var(--admin-border);border-radius:6px;overflow:hidden;width:fit-content">
-                        <button class="score-tab active" data-stab="season" style="padding:5px 14px;font-size:12px;font-weight:600;border:none;cursor:pointer;background:#f0f0f0;color:var(--admin-text-secondary)">Season</button>
-                        <button class="score-tab" data-stab="rounds" style="padding:5px 14px;font-size:12px;font-weight:600;border:none;border-left:1px solid var(--admin-border);cursor:pointer;background:#fff;color:var(--admin-text-secondary)">Rounds</button>
-                        ${mysteries.some(m => api.mysteryStatus(m) === 'live') ? '<button class="score-tab" data-stab="live" style="padding:5px 14px;font-size:12px;font-weight:600;border:none;border-left:1px solid var(--admin-border);cursor:pointer;background:#fff;color:var(--admin-text-secondary)">Live</button>' : ''}
+                    <div id="score-tabs" style="display:flex;gap:0;margin:12px 0 20px;border:1px solid var(--admin-border);border-radius:6px;overflow:hidden;width:fit-content">
+                        <button class="score-tab active" data-stab="season" style="padding:5px 14px;font-size:12px;font-weight:600;border:none;cursor:pointer;background:#f0f0f0;color:var(--admin-text-secondary)">Game</button>
+                        <button class="score-tab" data-stab="rounds" style="padding:5px 14px;font-size:12px;font-weight:600;border:none;border-left:1px solid var(--admin-border);cursor:pointer;background:#fff;color:var(--admin-text-secondary)">Mysteries</button>
+                        ${mysteries.some(m => api.mysteryStatus(m) === 'live') ? '<button class="score-tab" data-stab="live" style="padding:5px 14px;font-size:12px;font-weight:600;border:none;border-left:1px solid var(--admin-border);cursor:pointer;background:#fff;color:var(--admin-text-secondary)">Current</button>' : ''}
                     </div>
                     <div id="score-table-container"></div>
                     ` : '<div class="empty-state" style="padding:16px 0">No members yet</div>'}
@@ -1101,7 +1101,7 @@ async function openSeasonDetail(id) {
             const prevDisabled = roundIndex <= 0;
             const nextDisabled = roundIndex >= revealedMysteries.length - 1;
             container.innerHTML = `
-                <div style="display:flex;align-items:center;justify-content:center;gap:12px;margin-bottom:10px">
+                <div style="display:flex;align-items:center;justify-content:center;gap:12px;margin-bottom:16px">
                     <button id="round-prev" class="btn btn--plain btn--small" ${prevDisabled ? 'disabled style="opacity:0.3;pointer-events:none"' : ''}>&larr;</button>
                     <span style="font-size:13px;font-weight:600">${esc(m.title || '(untitled)')} <span style="font-weight:400;color:var(--admin-text-secondary)">(${roundIndex + 1} / ${revealedMysteries.length})</span></span>
                     <button id="round-next" class="btn btn--plain btn--small" ${nextDisabled ? 'disabled style="opacity:0.3;pointer-events:none"' : ''}>&rarr;</button>
@@ -1114,13 +1114,27 @@ async function openSeasonDetail(id) {
             if (!body) return;
             if (!guesses.length) { body.innerHTML = '<div class="empty-state" style="padding:12px 0">No guesses</div>'; return; }
             body.innerHTML = `<table class="admin-table">
-                <thead><tr><th>Name</th><th>Time</th><th>Distance</th><th>Score</th></tr></thead>
+                <thead><tr><th>Name</th><th>Time</th><th>Guess</th><th>Distance</th><th>Score</th></tr></thead>
                 <tbody>${guesses.map(g => {
                     const time = formatTimeAgo(g.submitted_at, m.published_at);
                     const dist = isTime ? formatTimeDifferenceShort(g.distance_m) : formatDistanceShort(g.distance_m);
-                    return `<tr>
-                        <td style="font-weight:500">${esc(g.profiles?.name || 'Unknown')}</td>
+                    let guessLabel = '—';
+                    if (isTime && g.guess?.year != null) {
+                        const yr = Math.abs(g.guess.year);
+                        const bc = g.guess.bc || g.guess.year < 0;
+                        guessLabel = String(yr) + (bc ? ' BC' : '');
+                        if (g.guess.month) guessLabel = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'][(g.guess.month - 1)] + ' ' + guessLabel;
+                        if (g.guess.day) guessLabel = g.guess.day + ' ' + guessLabel;
+                    } else if (g.guess?.location) {
+                        guessLabel = formatLocationLabel(g.guess.location);
+                    } else if (g.guess?.lat != null) {
+                        guessLabel = `${g.guess.lat.toFixed(2)}, ${g.guess.lng.toFixed(2)}`;
+                    }
+                    const isAuto = g.guess?.auto_guess === true;
+                    return `<tr${isAuto ? ' style="opacity:0.5"' : ''}>
+                        <td style="font-weight:500">${esc(g.profiles?.name || 'Unknown')}${isAuto ? ' <span style="font-size:10px">(auto)</span>' : ''}</td>
                         <td>${time}</td>
+                        <td>${esc(guessLabel)}</td>
                         <td>${dist}</td>
                         <td>${g.score}</td>
                     </tr>`;
@@ -1135,7 +1149,7 @@ async function openSeasonDetail(id) {
             }
             const isTime = liveMystery.type === 'time';
             container.innerHTML = `
-                <div style="font-size:13px;font-weight:600;margin-bottom:8px;color:var(--admin-text-secondary)">
+                <div style="font-size:13px;font-weight:600;margin-bottom:16px;color:var(--admin-text-secondary)">
                     <span class="badge badge--live">live</span> ${esc(liveMystery.title || '(untitled)')}
                 </div>
                 <div id="live-table-body"><div class="empty-state" style="padding:12px 0">Loading...</div></div>`;
