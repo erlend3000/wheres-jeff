@@ -1486,7 +1486,8 @@
             curveCtx = curveCanvas.getContext('2d');
             containerEl.appendChild(curveCanvas);
 
-            const initial = esc(firstName(profile.name).charAt(0).toUpperCase());
+            const pinDisplayName = opts.pinName || profile.name;
+            const initial = esc(firstName(pinDisplayName).charAt(0).toUpperCase());
             curvePinEl = document.createElement('div');
             curvePinEl.className = 'curve-pin';
             curvePinEl.innerHTML = `<div class="world-pin" style="background:#000;">${initial}</div>`;
@@ -2323,6 +2324,7 @@
                     detailLevel: answer?.detail_level,
                     readonly: true,
                     pinTime,
+                    pinName: selectedEntry?.name,
                     answerTime: answer,
                     answer
                 });
@@ -2406,6 +2408,10 @@
             curveResultMode = 'distance';
             if (entry?.guess?.year != null) {
                 curveResultEntry = entry.guess;
+                if (curvePinEl) {
+                    const pinInner = curvePinEl.querySelector('.world-pin');
+                    if (pinInner) pinInner.textContent = firstName(entry.name).charAt(0).toUpperCase();
+                }
                 setCurvePinFromTime(entry.guess);
                 fitCurveToBothPins();
                 showCurveDistanceFields();
