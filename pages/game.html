@@ -268,7 +268,10 @@
         let activeChannel = null;
         let mysteriesChannel = null;
         let countdownInterval = null;
-        let autoSubmitTimer = null;
+        // Lives across cleanupMystery / navigation so users still get a client-side
+        // auto-submit even if they browsed away from the live mystery before
+        // reveal. Falls back to localStorage-backed pin state.
+        let liveAutoSubmit = null;
         let bgPollInterval = null;
         let isReloading = false;
         let guessMap = null;
@@ -372,6 +375,101 @@
             try { localStorage.removeItem(pinStorageKey(mysteryId)); } catch {}
         }
 
+        // ── Live mystery auto-submit (lifecycle-independent) ──
+        // Triggers ~3s before reveal. Reads pin position from localStorage so
+        // it works even after the user navigated away from the live view (where
+        // cleanupMystery would have torn down the in-memory pin/curve state).
+
+        const AUTO_SUBMIT_LEAD_MS = 3000;
+
+        function scheduleLiveAutoSubmit(mystery) {
+            if (isAdminViewer) return;
+            if (!mystery?.reveals_at) return;
+            if (liveAutoSubmit?.mysteryId === mystery.id) return;
+            cancelLiveAutoSubmit();
+
+            const ans = mystery.answer || {};
+            const state = {
+                mysteryId: mystery.id,
+                isTime: mystery.type === 'time',
+                detail_level: ans.detail_level,
+                period_start: ans.period_start,
+                period_end: ans.period_end,
+                timer: null,
+                fired: false
+            };
+            liveAutoSubmit = state;
+
+            const msUntilLead = new Date(mystery.reveals_at).getTime() - Date.now() - AUTO_SUBMIT_LEAD_MS;
+            if (msUntilLead <= 0) {
+                fireLiveAutoSubmit();
+            } else {
+                state.timer = setTimeout(fireLiveAutoSubmit, msUntilLead);
+            }
+        }
+
+        async function fireLiveAutoSubmit() {
+            if (!liveAutoSubmit || liveAutoSubmit.fired) return;
+            const state = liveAutoSubmit;
+            state.fired = true;
+            try {
+                const existing = await getUserGuess(state.mysteryId, userId);
+                if (existing) return;
+
+                const saved = loadPinFromStorage(state.mysteryId);
+                if (state.isTime) {
+                    const periodStart = timeToDecimal(state.period_start);
+                    const periodEnd = timeToDecimal(state.period_end);
+                    const range = periodEnd - periodStart;
+                    const hasSaved = saved?.type === 'time' && saved.alpha != null;
+                    let alpha;
+                    if (hasSaved) {
+                        alpha = saved.alpha;
+                    } else {
+                        const lobeAlpha = Math.random() * 0.98 + 0.01;
+                        alpha = Math.random() < 0.5 ? lobeAlpha : 2 - lobeAlpha;
+                    }
+                    const ea = alpha <= 1 ? alpha : 2 - alpha;
+                    const decYear = periodStart + ea * range;
+                    const guessTime = decimalToTime(decYear);
+                    guessTime.lobe = alpha > 1 ? 1 : 0;
+                    guessTime.detail_level = state.detail_level;
+                    try {
+                        await submitTimeGuess(state.mysteryId, guessTime, hasSaved ? { autoSubmit: true } : { autoGuess: true });
+                    } catch {}
+                } else {
+                    const hasSaved = saved?.type === 'geo' && saved.lat != null && saved.lng != null;
+                    if (hasSaved) {
+                        try { await submitGuess(state.mysteryId, saved.lat, saved.lng, { autoSubmit: true }); } catch {}
+                    } else {
+                        const lat = (Math.random() * 180) - 90;
+                        const lng = (Math.random() * 360) - 180;
+                        try { await submitGuess(state.mysteryId, lat, lng, { autoGuess: true }); } catch {}
+                    }
+                }
+                clearPinStorage(state.mysteryId);
+            } finally {
+                if (liveAutoSubmit === state) {
+                    if (state.timer) clearTimeout(state.timer);
+                    liveAutoSubmit = null;
+                }
+            }
+        }
+
+        function cancelLiveAutoSubmit() {
+            if (liveAutoSubmit?.timer) clearTimeout(liveAutoSubmit.timer);
+            liveAutoSubmit = null;
+        }
+
+        // Schedule if mystery is live, otherwise cancel any stale timer.
+        function syncLiveAutoSubmit(mystery) {
+            if (mystery && mystery.reveals_at) {
+                scheduleLiveAutoSubmit(mystery);
+            } else {
+                cancelLiveAutoSubmit();
+            }
+        }
+
         function preloadImage(url) {
             if (!url) return;
             if (imageCache.has(url)) return;
@@ -455,6 +553,7 @@
 
         function openChooser() {
             cleanupMystery();
+            cancelLiveAutoSubmit();
             if (bgPollInterval) { clearInterval(bgPollInterval); bgPollInterval = null; }
             if (mysteriesChannel) { mysteriesChannel.unsubscribe(); mysteriesChannel = null; }
             if (autoGuessRefreshTimer) { clearTimeout(autoGuessRefreshTimer); autoGuessRefreshTimer = null; }
@@ -497,6 +596,7 @@
                 mysteries = await getSeasonMysteries(season.id);
                 currentMystery = getCurrentMystery(mysteries);
                 revealedMysteries = getRevealedMysteries(mysteries);
+                syncLiveAutoSubmit(currentMystery);
 
                 mysteriesChannel = subscribeMysteries(season.id, () => {
                     if (isReloading) return;
@@ -1976,29 +2076,8 @@
                 </div>
             `;
 
-            startCountdown(mystery, async () => {
-                if (isAdminViewer) return;
-                const existing = await getUserGuess(mystery.id, userId);
-                if (!existing) {
-                    if (isTime) {
-                        const guessTime = getGuessTimeFromCurve();
-                        if (!guessTime) return;
-                        guessTime.detail_level = answer.detail_level;
-                        const isAutoTime = !curveUserInteracted;
-                        try { await submitTimeGuess(mystery.id, guessTime, { autoGuess: isAutoTime, autoSubmit: !isAutoTime }); } catch {}
-                    } else {
-                        if (guessMarker) {
-                            const ll = guessMarker.getLatLng();
-                            try { await submitGuess(mystery.id, ll.lat, ll.lng, { autoSubmit: true }); } catch {}
-                        } else {
-                            const lat = (Math.random() * 180) - 90;
-                            const lng = (Math.random() * 360) - 180;
-                            try { await submitGuess(mystery.id, lat, lng, { autoGuess: true }); } catch {}
-                        }
-                    }
-                }
-                clearPinStorage(mystery.id);
-            });
+            startCountdown(mystery);
+            scheduleLiveAutoSubmit(mystery);
 
             if (isTime) {
                 const mapEl = document.getElementById('guess-map-container');
@@ -2035,6 +2114,7 @@
                         setBannerLoading(submitBanner, true);
                         try {
                             await submitTimeGuess(mystery.id, guessTime);
+                            cancelLiveAutoSubmit();
                             clearPinStorage(mystery.id);
                             await renderMysteryAtPosition();
                         } catch (e) {
@@ -2047,6 +2127,7 @@
                         setBannerLoading(submitBanner, true);
                         try {
                             await submitGuess(mystery.id, ll.lat, ll.lng);
+                            cancelLiveAutoSubmit();
                             clearPinStorage(mystery.id);
                             await renderMysteryAtPosition();
                         } catch (e) {
@@ -2437,32 +2518,17 @@
             });
         }
 
-        function startCountdown(mystery, onExpire) {
+        function startCountdown(mystery) {
             if (!mystery.reveals_at) return;
             fixCountdownStripWidth();
 
-            // Fire onExpire ~3s BEFORE deadline so the auto-submit RPC reaches
-            // the server while now() < reveals_at (server strictly rejects
-            // submissions after reveal). Cron is the safety net for users
-            // whose browser was closed.
-            const AUTO_SUBMIT_LEAD_MS = 3000;
-            const msUntilLead = new Date(mystery.reveals_at).getTime() - Date.now() - AUTO_SUBMIT_LEAD_MS;
-            let onExpireFired = false;
-            const fireExpire = async () => {
-                if (onExpireFired) return;
-                onExpireFired = true;
-                if (onExpire) { try { await onExpire(); } catch {} }
-            };
-            if (autoSubmitTimer) { clearTimeout(autoSubmitTimer); autoSubmitTimer = null; }
-            if (msUntilLead > 0) {
-                autoSubmitTimer = setTimeout(fireExpire, msUntilLead);
-            }
-
+            // Auto-submit is handled by scheduleLiveAutoSubmit (lifecycle-
+            // independent). This loop only renders the visible countdown and
+            // reloads to the revealed view when it hits zero.
             countdownInterval = setInterval(async () => {
                 const el = document.getElementById('countdown');
                 if (!el) {
                     clearInterval(countdownInterval); countdownInterval = null;
-                    if (autoSubmitTimer) { clearTimeout(autoSubmitTimer); autoSubmitTimer = null; }
                     return;
                 }
                 const text = formatCountdown(mystery.reveals_at);
@@ -2473,8 +2539,9 @@
                 } else {
                     clearInterval(countdownInterval);
                     countdownInterval = null;
-                    if (autoSubmitTimer) { clearTimeout(autoSubmitTimer); autoSubmitTimer = null; }
-                    await fireExpire();
+                    // Make sure auto-submit went out before we navigate to the
+                    // revealed view (no-op if already fired).
+                    await fireLiveAutoSubmit();
                     pendingRevealConfetti = true;
                     showToast('Mystery revealed');
                     await reloadMysteries({ navigateTo: 'latest', scrollToMystery: true });
@@ -2696,7 +2763,10 @@
         function cleanupMystery() {
             if (activeChannel) { activeChannel.unsubscribe(); activeChannel = null; }
             if (countdownInterval) { clearInterval(countdownInterval); countdownInterval = null; }
-            if (autoSubmitTimer) { clearTimeout(autoSubmitTimer); autoSubmitTimer = null; }
+            // Intentionally do NOT cancel liveAutoSubmit here — that timer is
+            // tied to the live mystery's reveals_at, not to which view is
+            // currently rendered. It survives navigation between mysteries
+            // within the same season so the auto-submit still fires.
             if (waitingInterval) { clearInterval(waitingInterval); waitingInterval = null; }
             if (revealRefreshTimer) { clearTimeout(revealRefreshTimer); revealRefreshTimer = null; }
             if (guessMap) { guessMap.remove(); guessMap = null; }
@@ -2718,6 +2788,7 @@
                 mysteries = await getSeasonMysteries(season.id);
                 currentMystery = getCurrentMystery(mysteries);
                 revealedMysteries = getRevealedMysteries(mysteries);
+                syncLiveAutoSubmit(currentMystery);
 
                 const wasActive = season.active || season.ending;
                 if (wasActive && !currentMystery && revealedMysteries.length) {
