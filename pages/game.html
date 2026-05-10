@@ -2077,7 +2077,9 @@
             `;
 
             startCountdown(mystery);
-            scheduleLiveAutoSubmit(mystery);
+            // liveAutoSubmit is scheduled at the season level (enterSeason +
+            // reloadMysteries via syncLiveAutoSubmit) so it survives navigation
+            // away from this view; no need to schedule it here.
 
             if (isTime) {
                 const mapEl = document.getElementById('guess-map-container');
@@ -2816,29 +2818,32 @@
 
                 // Never yank the user away from a past mystery they explicitly
                 // navigated to. 'past' / 'latest' = browsing history; 'current'
-                // / 'next' / 'first' = on the live side, where automatic
+                // / 'next' / 'first' = the live side, where automatic
                 // navigation to a new state is the desired UX.
                 const wasOnPast = prevType === 'past' || prevType === 'latest';
+                const wasWaiting = prevType === 'next' || prevType === 'first';
 
-                if (opts.navigateTo && !wasOnPast) {
-                    const idx = navItems.findIndex(n => n.type === opts.navigateTo);
-                    if (idx >= 0) navPos = idx;
-                } else if (opts.navigateTo && wasOnPast && prevMysteryId) {
-                    const idx = navItems.findIndex(n => n.mystery?.id === prevMysteryId);
-                    if (idx >= 0) navPos = idx;
-                } else if (opts.preserveNav) {
-                    // newCurrentAppeared: the user was waiting (next/first) and
-                    // a live mystery just appeared — yank to it. Past viewers
-                    // are NOT yanked.
-                    const newCurrentAppeared = currentMystery && (prevType === 'next' || prevType === 'first');
-                    if (newCurrentAppeared) {
-                        // Fall through to default (navPos stays at 0, which is current).
-                    } else if (prevMysteryId) {
+                if (opts.navigateTo) {
+                    if (wasOnPast && prevMysteryId) {
                         const idx = navItems.findIndex(n => n.mystery?.id === prevMysteryId);
                         if (idx >= 0) navPos = idx;
-                    } else if (prevType === 'next') {
-                        const idx = navItems.findIndex(n => n.type === 'next');
+                    } else {
+                        const idx = navItems.findIndex(n => n.type === opts.navigateTo);
                         if (idx >= 0) navPos = idx;
+                    }
+                } else if (opts.preserveNav) {
+                    // If a live mystery just appeared while user was waiting,
+                    // let navPos stay at the default 0 (= current). Otherwise
+                    // restore the position they were on.
+                    const newCurrentAppeared = currentMystery && wasWaiting;
+                    if (!newCurrentAppeared) {
+                        if (prevMysteryId) {
+                            const idx = navItems.findIndex(n => n.mystery?.id === prevMysteryId);
+                            if (idx >= 0) navPos = idx;
+                        } else if (prevType === 'next') {
+                            const idx = navItems.findIndex(n => n.type === 'next');
+                            if (idx >= 0) navPos = idx;
+                        }
                     }
                 }
 
