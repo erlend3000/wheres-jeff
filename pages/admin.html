@@ -357,15 +357,33 @@ const MYSTERY_TYPES = [
     { key: 'cyber', label: 'Cyberspace' }
 ];
 
+let seasonsChannel = null;
+let seasonsReloadTimer = null;
+function scheduleSeasonsReload() {
+    if (seasonsReloadTimer) clearTimeout(seasonsReloadTimer);
+    seasonsReloadTimer = setTimeout(() => { seasonsReloadTimer = null; renderSeasons(); }, 400);
+}
+
 async function renderSeasons() {
     seasonDetail.style.display = 'none';
     seasonsList.style.display = 'block';
     try {
         const imgKeys = MYSTERY_TYPES.map(t => `waiting_image_${t.key}`);
-        const [seasons, ...imgValues] = await Promise.all([
+        let [seasons, ...imgValues] = await Promise.all([
             api.getSeasons(),
             ...imgKeys.map(k => api.getSetting(k))
         ]);
+
+        // Refresh stale auto-end status for any active or ending seasons before
+        // rendering. This catches the case where the last mystery has revealed
+        // but no one has triggered checkSeasonAutoEnd yet from the player view.
+        const stale = seasons.filter(s => s.active || s.ending);
+        if (stale.length) {
+            const results = await Promise.all(stale.map(s => checkSeasonAutoEnd(s.id).catch(() => false)));
+            if (results.some(Boolean)) {
+                seasons = await api.getSeasons();
+            }
+        }
         const waitingImages = {};
         MYSTERY_TYPES.forEach((t, i) => { waitingImages[t.key] = imgValues[i]; });
 
@@ -432,6 +450,14 @@ async function renderSeasons() {
             });
         });
         wireWaitingImageUploads();
+
+        // Subscribe to seasons table changes so e.g. an auto-end triggered by
+        // a player elsewhere reflects in the admin games list immediately.
+        if (!seasonsChannel) {
+            seasonsChannel = api.subscribeSeasons(() => {
+                if (seasonsList.style.display !== 'none') scheduleSeasonsReload();
+            });
+        }
     } catch (err) {
         seasonsList.innerHTML = `<div class="empty-state">Error: ${esc(err.message)}</div>`;
     }
