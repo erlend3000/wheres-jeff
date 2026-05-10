@@ -268,6 +268,7 @@
         let activeChannel = null;
         let mysteriesChannel = null;
         let countdownInterval = null;
+        let autoSubmitTimer = null;
         let bgPollInterval = null;
         let isReloading = false;
         let guessMap = null;
@@ -2433,9 +2434,31 @@
         function startCountdown(mystery, onExpire) {
             if (!mystery.reveals_at) return;
             fixCountdownStripWidth();
+
+            // Fire onExpire ~3s BEFORE deadline so the auto-submit RPC reaches
+            // the server while now() < reveals_at (server strictly rejects
+            // submissions after reveal). Cron is the safety net for users
+            // whose browser was closed.
+            const AUTO_SUBMIT_LEAD_MS = 3000;
+            const msUntilLead = new Date(mystery.reveals_at).getTime() - Date.now() - AUTO_SUBMIT_LEAD_MS;
+            let onExpireFired = false;
+            const fireExpire = async () => {
+                if (onExpireFired) return;
+                onExpireFired = true;
+                if (onExpire) { try { await onExpire(); } catch {} }
+            };
+            if (autoSubmitTimer) { clearTimeout(autoSubmitTimer); autoSubmitTimer = null; }
+            if (msUntilLead > 0) {
+                autoSubmitTimer = setTimeout(fireExpire, msUntilLead);
+            }
+
             countdownInterval = setInterval(async () => {
                 const el = document.getElementById('countdown');
-                if (!el) { clearInterval(countdownInterval); countdownInterval = null; return; }
+                if (!el) {
+                    clearInterval(countdownInterval); countdownInterval = null;
+                    if (autoSubmitTimer) { clearTimeout(autoSubmitTimer); autoSubmitTimer = null; }
+                    return;
+                }
                 const text = formatCountdown(mystery.reveals_at);
                 if (text) {
                     const prev = el.textContent;
@@ -2444,7 +2467,8 @@
                 } else {
                     clearInterval(countdownInterval);
                     countdownInterval = null;
-                    if (onExpire) await onExpire();
+                    if (autoSubmitTimer) { clearTimeout(autoSubmitTimer); autoSubmitTimer = null; }
+                    await fireExpire();
                     pendingRevealConfetti = true;
                     showToast('Mystery revealed');
                     await reloadMysteries({ navigateTo: 'latest', scrollToMystery: true });
@@ -2666,6 +2690,7 @@
         function cleanupMystery() {
             if (activeChannel) { activeChannel.unsubscribe(); activeChannel = null; }
             if (countdownInterval) { clearInterval(countdownInterval); countdownInterval = null; }
+            if (autoSubmitTimer) { clearTimeout(autoSubmitTimer); autoSubmitTimer = null; }
             if (waitingInterval) { clearInterval(waitingInterval); waitingInterval = null; }
             if (revealRefreshTimer) { clearTimeout(revealRefreshTimer); revealRefreshTimer = null; }
             if (guessMap) { guessMap.remove(); guessMap = null; }
