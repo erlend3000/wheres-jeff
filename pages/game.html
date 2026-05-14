@@ -95,7 +95,7 @@
             getMysteryLeaderboard, getSeasonLeaderboard,
             checkSeasonAutoEnd, getSeasonWinners, getSeasonTesterIds, resetTesterCache,
             formatTimeAgo, formatDistance, formatDistanceShort, formatCountdown, formatCountdownIn, formatMysteryDate,
-            firstName, formatNumber, formatLocationLabel, reverseGeocode,
+            firstName, possessive, formatNumber, formatLocationLabel, reverseGeocode,
             timeToDecimal, decimalToTime, timeYearsDiff, formatTimeDifference, formatTimeDifferenceShort,
             formatTimeDisplay
         } from '../lib/game.js';
@@ -2382,8 +2382,8 @@
             let selectedEntry = userEntry || leaderboard[0] || null;
 
             const resultLabel = !userEntry
-                ? (selectedEntry ? `${esc(firstName(selectedEntry.name))}'S RESULT` : 'NO RESULTS')
-                : selectedEntry.user_id === userId ? 'YOUR RESULT' : `${esc(firstName(selectedEntry.name))}'S RESULT`;
+                ? (selectedEntry ? `${esc(possessive(firstName(selectedEntry.name), { upper: true }))} RESULT` : 'NO RESULTS')
+                : selectedEntry.user_id === userId ? 'YOUR RESULT' : `${esc(possessive(firstName(selectedEntry.name), { upper: true }))} RESULT`;
             const scoreText = !selectedEntry ? 'SCORE: 0' : `SCORE: ${formatNumber(selectedEntry.score)}`;
             const distHeader = 'Distance';
 
@@ -2467,7 +2467,7 @@
                         bindResultRows();
                         const labelEl = document.getElementById('result-label');
                         if (labelEl && selectedEntry) {
-                            labelEl.textContent = (!isAdminViewer && selectedEntry.user_id === userId) ? 'YOUR RESULT' : `${firstName(selectedEntry.name)}'S RESULT`;
+                            labelEl.textContent = (!isAdminViewer && selectedEntry.user_id === userId) ? 'YOUR RESULT' : `${possessive(firstName(selectedEntry.name), { upper: true })} RESULT`;
                         }
                         const scoreEl = document.getElementById('score-banner-text');
                         if (scoreEl && selectedEntry) scoreEl.textContent = `SCORE: ${formatNumber(selectedEntry.score)}`;
@@ -2489,7 +2489,7 @@
 
         function updateTimeResultView(answer, entry) {
             const label = document.getElementById('result-label');
-            if (label) label.textContent = (!isAdminViewer && entry.user_id === userId) ? 'YOUR RESULT' : `${firstName(entry.name)}'S RESULT`;
+            if (label) label.textContent = (!isAdminViewer && entry.user_id === userId) ? 'YOUR RESULT' : `${possessive(firstName(entry.name), { upper: true })} RESULT`;
             const scoreEl = document.getElementById('score-banner-text');
             if (scoreEl) scoreEl.textContent = entry?.score != null ? `SCORE: ${formatNumber(entry.score)}` : '';
             document.querySelectorAll('.mystery__results-row').forEach(row => {
@@ -2760,7 +2760,7 @@
 
         function updateResultView(answer, entry) {
             const label = document.getElementById('result-label');
-            if (label) label.textContent = (!isAdminViewer && entry.user_id === userId) ? 'YOUR RESULT' : `${firstName(entry.name)}'S RESULT`;
+            if (label) label.textContent = (!isAdminViewer && entry.user_id === userId) ? 'YOUR RESULT' : `${possessive(firstName(entry.name), { upper: true })} RESULT`;
 
             const scoreEl = document.getElementById('score-banner-text');
             if (scoreEl) scoreEl.textContent = entry?.score != null ? `SCORE: ${formatNumber(entry.score)}` : '';
