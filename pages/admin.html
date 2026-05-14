@@ -783,11 +783,12 @@ async function openSeasonDetail(id) {
                         if (startInput) startInput.value = api.toDatetimeLocal(new Date().toISOString());
                     }
                     await api.addMysteryToSeason(id, item.dataset.tid);
-                    const updated = await api.getMysteriesBySeason(id);
-                    document.getElementById('season-mysteries-table').innerHTML = renderSeasonMysteriesTable(updated);
-                    const titleEl = seasonDetail.querySelector('#season-mysteries-table')?.closest('.card')?.querySelector('.card__title');
-                    if (titleEl) titleEl.textContent = `Mysteries (${updated.length})`;
-                    wireMysteriesTable(id, season);
+                    // recalcAndSave assigns published_at/reveals_at via
+                    // computeSchedule when the season already has a timing
+                    // config (active games), so a mystery added mid-season
+                    // becomes 'scheduled' instead of staying 'draft'. For
+                    // unpublished games without a config, it just re-renders.
+                    await recalcAndSave();
                     showToast('Mystery added');
                 });
             });
