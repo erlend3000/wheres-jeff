@@ -1161,10 +1161,25 @@ async function openSeasonDetail(id) {
                 }).join('')}</tbody></table>`;
             wireSortHeaders(container, renderSeasonScoreView);
             container.querySelectorAll('.btn-rm-member').forEach(btn => {
-                btn.addEventListener('click', async () => {
-                    await api.removeSeasonMember(id, btn.dataset.uid);
-                    showToast('Member removed');
-                    openSeasonDetail(id);
+                btn.addEventListener('click', () => {
+                    const uid = btn.dataset.uid;
+                    const row = members.find(m => m.user_id === uid);
+                    const name = row?.profiles?.name || uid;
+                    showModal('Remove member?', `
+                        <p style="color:#616161">Remove <strong>${esc(name)}</strong> from this game?</p>
+                        <label style="display:flex;align-items:center;gap:8px;margin-top:12px;cursor:pointer">
+                            <input type="checkbox" id="modal-delete-guesses">
+                            <span style="color:#616161;font-size:14px">Also delete all their guesses from this game</span>
+                        </label>`, [
+                        { label: 'Cancel' },
+                        { label: 'Remove', cls: 'btn--danger', fn: async () => {
+                            const deleteGuesses = document.getElementById('modal-delete-guesses')?.checked;
+                            if (deleteGuesses) await api.removeSeasonMemberGuesses(id, uid);
+                            await api.removeSeasonMember(id, uid);
+                            showToast(deleteGuesses ? 'Member and guesses removed' : 'Member removed');
+                            openSeasonDetail(id);
+                        }}
+                    ]);
                 });
             });
         }
