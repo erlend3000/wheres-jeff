@@ -1706,13 +1706,6 @@ function getTimeAnswerFromForm() {
     return ans;
 }
 
-function formatRangeValue(n) {
-    if (n >= 1_000_000_000) return `${parseFloat((n / 1_000_000_000).toFixed(1))}B`;
-    if (n >= 1_000_000) return `${parseFloat((n / 1_000_000).toFixed(1))}M`;
-    if (n >= 10_000) return `${parseFloat((n / 1_000).toFixed(1))}K`;
-    return String(n);
-}
-
 function updateTimePreview() {
     const ans = getTimeAnswerFromForm();
     const el = document.getElementById('time-preview');
