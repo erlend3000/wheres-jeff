@@ -97,7 +97,7 @@
             formatTimeAgo, formatDistance, formatDistanceShort, formatCountdown, formatCountdownIn, formatMysteryDate,
             firstName, possessive, formatNumber, formatLocationLabel, reverseGeocode,
             timeToDecimal, decimalToTime, timeYearsDiff, formatTimeDifference, formatTimeDifferenceShort,
-            formatTimeDisplay
+            formatTimeDisplay, formatTimeTitle, effectiveTimeDiff, getAnswerCenterDecimal
         } from '../lib/game.js';
         import { supabase } from '../lib/supabase.js';
         import { showToast } from '../lib/toast.js';
@@ -318,6 +318,7 @@
         let curveDetailLevel = 'year';
         let curveReadonly = false;
         let curveAnswerAlpha = null;
+        let curveAnswerAlphas = [];
         let curveViewX = 0, curveViewY = 0;
         let curvePanLastX = null, curvePanLastY = null;
         let curveDragScreenX = 0, curveDragScreenY = 0;
@@ -347,7 +348,6 @@
             '#D0A030', '#E8C040', '#C89828', '#B88820',
         ];
         const DETAIL_MIN_VISIBLE = { year: 1, month: 1/12, day: 1/365.25, minute: 1/8766 };
-        const RANGE_UNIT_TO_YEARS = { minute: 1/525960, hour: 1/8766, day: 1/365.25, month: 1/12, year: 1 };
         const CONFETTI_COLORS = ['#000000', '#FFFFFF', '#BA0000', '#000540', '#F4BD41', '#00478a', '#933000', '#6a1001'];
         const LEADERBOARD_VALUE_FN = {
             score: e => e.total_score,
@@ -949,25 +949,29 @@
                 const pp = curvePinPoint(curvePinAlpha);
                 pinPosPx.push(curveToScreen(pp.x, pp.y, w, h, curveZoom, vx, vy));
             }
-            if (curveAnswerAlpha != null) {
-                const onLeft = curvePinAlpha != null && curvePinAlpha > 1;
-                const ap = onLeft ? leftLobePoint(1 - curveAnswerAlpha) : curvePointFromAlpha(curveAnswerAlpha);
+            for (const alpha of getCurveAnswerAlphas()) {
+                const ap = curveAnswerPoint(alpha);
                 pinPosPx.push(curveToScreen(ap.x, ap.y, w, h, curveZoom, vx, vy));
             }
             const pinPosArg = pinPosPx.length ? pinPosPx : null;
 
             let dashPath = null;
             let dashClipW = 0;
-            if (curveAnswerAlpha != null && curvePinAlpha != null) {
+            const dashAlphas = getCurveAnswerAlphas();
+            if (dashAlphas.length && curvePinAlpha != null) {
                 const onLeft = curvePinAlpha > 1;
                 const lobePointFn = onLeft ? leftLobePoint : curvePointFromAlpha;
                 let lobeParamPin, lobeParamAns;
+                const nearestAlpha = dashAlphas.reduce((best, a) => {
+                    const d = Math.abs(a - curvePinAlpha);
+                    return d < Math.abs(best - curvePinAlpha) ? a : best;
+                }, dashAlphas[0]);
                 if (onLeft) {
                     lobeParamPin = curvePinAlpha - 1;
-                    lobeParamAns = 1 - curveAnswerAlpha;
+                    lobeParamAns = 1 - nearestAlpha;
                 } else {
                     lobeParamPin = curvePinAlpha;
-                    lobeParamAns = curveAnswerAlpha;
+                    lobeParamAns = nearestAlpha;
                 }
                 const dMin = Math.min(lobeParamPin, lobeParamAns);
                 const dMax = Math.max(lobeParamPin, lobeParamAns);
@@ -1106,17 +1110,16 @@
                 }
             }
 
-            if (curveAnswerAlpha != null) {
-                const onLeftLobe = curvePinAlpha != null && curvePinAlpha > 1;
-                const ap = onLeftLobe ? leftLobePoint(1 - curveAnswerAlpha) : curvePointFromAlpha(curveAnswerAlpha);
+            const ansEls = curveContainer?.querySelectorAll('.curve-pin--answer');
+            getCurveAnswerAlphas().forEach((alpha, i) => {
+                const ap = curveAnswerPoint(alpha);
                 const { sx, sy } = curveToScreen(ap.x, ap.y, w, h, curveZoom, vx, vy);
-                const ansEl = curveContainer?.querySelector('.curve-pin--answer');
-                if (ansEl) {
-                    ansEl.style.left = sx + 'px';
-                    ansEl.style.top = sy + 'px';
-                    ansEl.style.display = '';
+                if (ansEls?.[i]) {
+                    ansEls[i].style.left = sx + 'px';
+                    ansEls[i].style.top = sy + 'px';
+                    ansEls[i].style.display = '';
                 }
-            }
+            });
         }
 
         function resizeCurveCanvas() {
@@ -1279,12 +1282,13 @@
             }
         }
 
-        function effectiveTimeDiff(entry, answer) {
-            let diff = timeYearsDiff(entry, answer, answer.detail_level);
-            if (answer.range > 0 && answer.range_unit) {
-                diff = Math.max(0, diff - answer.range * (RANGE_UNIT_TO_YEARS[answer.range_unit] || 1));
-            }
-            return diff;
+        function getCurveAnswerAlphas() {
+            return curveAnswerAlphas.length ? curveAnswerAlphas : (curveAnswerAlpha != null ? [curveAnswerAlpha] : []);
+        }
+
+        function curveAnswerPoint(alpha) {
+            const onLeftLobe = curvePinAlpha != null && curvePinAlpha > 1;
+            return onLeftLobe ? leftLobePoint(1 - alpha) : curvePointFromAlpha(alpha);
         }
 
         function showCurveDistanceFields() {
@@ -1300,16 +1304,19 @@
         }
 
         function fitCurveToBothPins() {
-            if (curveAnswerAlpha == null || curvePinAlpha == null) return;
+            const alphas = getCurveAnswerAlphas();
+            if (!alphas.length || curvePinAlpha == null) return;
             const pinPt = curvePinPoint(curvePinAlpha);
-            const onLeftLobe = curvePinAlpha > 1;
-            const ansPt = onLeftLobe ? leftLobePoint(1 - curveAnswerAlpha) : curvePointFromAlpha(curveAnswerAlpha);
-            const cx = (pinPt.x + ansPt.x) / 2;
-            const cy = (pinPt.y + ansPt.y) / 2;
-            curveViewX = cx;
-            curveViewY = cy;
-            const dx = Math.abs(pinPt.x - ansPt.x);
-            const dy = Math.abs(pinPt.y - ansPt.y);
+            const pts = [pinPt, ...alphas.map(a => curveAnswerPoint(a))];
+            let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+            for (const p of pts) {
+                minX = Math.min(minX, p.x); maxX = Math.max(maxX, p.x);
+                minY = Math.min(minY, p.y); maxY = Math.max(maxY, p.y);
+            }
+            curveViewX = (minX + maxX) / 2;
+            curveViewY = (minY + maxY) / 2;
+            const dx = maxX - minX;
+            const dy = maxY - minY;
             const span = Math.max(dx, dy, 0.05);
             const { w, h } = curveCanvasMetrics();
             const pad = Math.min(w, h) * 0.08;
@@ -1322,10 +1329,9 @@
             const fieldH = curveFieldsEl ? curveFieldsEl.offsetHeight : 0;
             const fieldCenterY = h * CURVE_Y_CENTER;
             const halfField = fieldH / 2 + 10;
-            const pScreen = curveToScreen(pinPt.x, pinPt.y, w, h, curveZoom, curveViewX, curveViewY);
-            const aScreen = curveToScreen(ansPt.x, ansPt.y, w, h, curveZoom, curveViewX, curveViewY);
-            const topPin = Math.min(pScreen.sy, aScreen.sy);
-            const botPin = Math.max(pScreen.sy, aScreen.sy);
+            const screens = pts.map(p => curveToScreen(p.x, p.y, w, h, curveZoom, curveViewX, curveViewY));
+            const topPin = Math.min(...screens.map(s => s.sy));
+            const botPin = Math.max(...screens.map(s => s.sy));
             if (topPin > fieldCenterY - halfField && botPin < fieldCenterY + halfField) {
                 curveViewY += (halfField + 20) / (baseScale * curveZoom);
             } else if (topPin < fieldCenterY + halfField && topPin > fieldCenterY - halfField) {
@@ -1554,6 +1560,7 @@
             curveReadonly = opts.readonly || false;
             curvePinAlpha = null;
             curveAnswerAlpha = null;
+            curveAnswerAlphas = [];
             curvePanning = false;
             curveDragging = false;
             curveUserInteracted = false;
@@ -1565,7 +1572,7 @@
                 curveTimeEnd = timeToDecimal(opts.answer.period_end);
                 adminDefinedPeriod = true;
             } else if (opts.answer) {
-                const ansDec = timeToDecimal(opts.answer);
+                const ansDec = getAnswerCenterDecimal(opts.answer);
                 const period = computeCurvePeriod(ansDec);
                 curveTimeEnd = nd;
                 curveTimeStart = Math.max(-13_800_000_000, nd - period);
@@ -1618,30 +1625,51 @@
                 curvePinAlpha = Math.random() < 0.5 ? lobeAlpha : 2 - lobeAlpha;
                 updateTimeFields();
             }
-            if (opts.answerTime) {
-                const dec = timeToDecimal(opts.answerTime);
-                curveAnswerAlpha = yearToAlpha(dec);
+            let answerTimes = [];
+            if (opts.answer?.answer_start && opts.answer?.answer_end) {
+                answerTimes = [opts.answer.answer_start, opts.answer.answer_end];
+            } else {
+                const single = opts.answerTime || (opts.answer?.year != null ? opts.answer : null);
+                if (single) answerTimes = [single];
+            }
+            if (answerTimes.length) {
+                curveAnswerAlphas = answerTimes.map(t => yearToAlpha(timeToDecimal(t)));
+                curveAnswerAlpha = curveAnswerAlphas[0];
+                const answerPins = [];
+                answerTimes.forEach(() => {
                 const ansPin = document.createElement('div');
                 ansPin.className = 'curve-pin curve-pin--answer';
                 ansPin.innerHTML = `<div class="world-pin world-pin--j" style="background:#BA0000;cursor:pointer;">J</div>`;
                 ansPin.style.display = 'none';
                 containerEl.appendChild(ansPin);
+                answerPins.push(ansPin);
+                });
 
                 if (curveReadonly && opts.pinTime) {
-                    curveResultAnswer = opts.answerTime;
+                    curveResultAnswer = opts.answer || opts.answerTime;
                     curveResultEntry = opts.pinTime;
                     curveResultMode = 'distance';
 
                     curvePinEl.style.cursor = 'pointer';
-                    ansPin.style.pointerEvents = 'auto';
                     curvePinEl.style.pointerEvents = 'auto';
-
-                    ansPin.addEventListener('click', (e) => {
-                        e.stopPropagation();
-                        if (curveResultTimer) clearTimeout(curveResultTimer);
-                        curveResultMode = 'answer';
-                        showCurveTimeFields(curveResultAnswer);
-                        curveResultTimer = setTimeout(() => { curveResultMode = 'distance'; showCurveDistanceFields(); }, 2000);
+                    answerPins.forEach(ansPin => {
+                        ansPin.style.pointerEvents = 'auto';
+                        ansPin.addEventListener('click', (e) => {
+                            e.stopPropagation();
+                            if (curveResultTimer) clearTimeout(curveResultTimer);
+                            curveResultMode = 'answer';
+                            if (curveResultAnswer?.answer_start && curveResultAnswer?.answer_end) {
+                                const yearEl = curveFieldsEl?.querySelector('[data-field="year"]');
+                                const dateEl = curveFieldsEl?.querySelector('[data-field="date"]');
+                                const timeEl = curveFieldsEl?.querySelector('[data-field="time"]');
+                                if (yearEl) yearEl.querySelector('.time-field__display').textContent = formatTimeTitle(curveResultAnswer);
+                                if (dateEl) dateEl.style.display = 'none';
+                                if (timeEl) timeEl.style.display = 'none';
+                            } else {
+                                showCurveTimeFields(curveResultAnswer);
+                            }
+                            curveResultTimer = setTimeout(() => { curveResultMode = 'distance'; showCurveDistanceFields(); }, 2000);
+                        });
                     });
 
                     curvePinEl.addEventListener('click', (e) => {
@@ -1682,7 +1710,9 @@
                 if (curveZoom !== oldZoom) drawCurve();
             }, { passive: false });
 
-            const isResult = curveReadonly && opts.answerTime && opts.pinTime;
+            const isResult = curveReadonly && opts.pinTime && (
+                opts.answer?.answer_start || opts.answerTime || opts.answer?.year != null
+            );
             setTimeout(() => {
                 resizeCurveCanvas();
                 if (isResult) {
@@ -1883,7 +1913,7 @@
             curveCanvas = null; curveCtx = null;
             curvePinEl = null; curveFieldsEl = null;
             curveContainer = null;
-            curvePinAlpha = null; curveAnswerAlpha = null;
+            curvePinAlpha = null; curveAnswerAlpha = null; curveAnswerAlphas = [];
             curveZoom = 1; curveDragging = false; curvePanning = false;
             curveViewX = 0; curveViewY = 0;
             curvePanLastX = null; curvePanLastY = null;
