@@ -200,6 +200,39 @@
                                         <input class="form-input" type="number" id="answer-to-minute" style="width:60px" min="0" max="59" placeholder="0">
                                     </div>
                                 </div>
+                                <div id="answer-display-section" style="margin-top:14px;padding-top:12px;border-top:1px solid rgba(0,0,0,0.06)">
+                                    <div style="font-size:12px;color:var(--admin-text-secondary);margin-bottom:10px">Display time <span style="opacity:0.85">(pin and mystery title)</span></div>
+                                    <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+                                        <div style="display:flex;align-items:center;gap:6px">
+                                            <label class="form-label" style="margin:0;white-space:nowrap">Year</label>
+                                            <input class="form-input" type="number" id="answer-display-year" style="width:140px" placeholder="e.g. 1912">
+                                            <label style="display:flex;align-items:center;gap:4px;font-size:13px;cursor:pointer">
+                                                <input type="checkbox" id="answer-display-bc"> BC
+                                            </label>
+                                        </div>
+                                        <div id="answer-display-month-wrap" style="display:none;align-items:center;gap:6px">
+                                            <label class="form-label" style="margin:0">Month</label>
+                                            <select class="form-input" id="answer-display-month" style="width:130px">
+                                                <option value="1">January</option><option value="2">February</option>
+                                                <option value="3">March</option><option value="4">April</option>
+                                                <option value="5">May</option><option value="6">June</option>
+                                                <option value="7">July</option><option value="8">August</option>
+                                                <option value="9">September</option><option value="10">October</option>
+                                                <option value="11">November</option><option value="12">December</option>
+                                            </select>
+                                        </div>
+                                        <div id="answer-display-day-wrap" style="display:none;align-items:center;gap:6px">
+                                            <label class="form-label" style="margin:0">Day</label>
+                                            <input class="form-input" type="number" id="answer-display-day" style="width:70px" min="1" max="31" placeholder="1">
+                                        </div>
+                                        <div id="answer-display-hm-wrap" style="display:none;align-items:center;gap:6px">
+                                            <label class="form-label" style="margin:0">Time</label>
+                                            <input class="form-input" type="number" id="answer-display-hour" style="width:60px" min="0" max="23" placeholder="0">
+                                            <span style="font-weight:700">:</span>
+                                            <input class="form-input" type="number" id="answer-display-minute" style="width:60px" min="0" max="59" placeholder="0">
+                                        </div>
+                                    </div>
+                                </div>
                             </div>
                             <div style="margin-top:18px;padding-top:14px;border-top:1px solid rgba(0,0,0,0.08)">
                                 <label class="form-label" style="display:block;margin-bottom:16px">Guess period</label>
@@ -303,7 +336,7 @@
 <script type="module">
 import { requireAuth, getProfile, validateName } from '../lib/auth.js';
 import * as api from '../lib/admin.js';
-import { checkSeasonAutoEnd, formatTimeTitle, timeToDecimal, decimalToTime, computeTimePeriod, getAnswerCenterDecimal, RANGE_UNIT_TO_YEARS, formatTimeAgo, formatDistanceShort, formatTimeDifferenceShort, formatLocationLabel, reverseGeocode } from '../lib/game.js';
+import { checkSeasonAutoEnd, formatTimeTitle, formatAnswerRangeSpan, getAnswerDisplayTime, timeToDecimal, decimalToTime, computeTimePeriod, getAnswerCenterDecimal, RANGE_UNIT_TO_YEARS, formatTimeAgo, formatDistanceShort, formatTimeDifferenceShort, formatLocationLabel, reverseGeocode } from '../lib/game.js';
 import { showToast } from '../lib/toast.js';
 
 const UNIT_MS = { seconds: 1000, minutes: 60000, hours: 3600000, days: 86400000, weeks: 604800000 };
@@ -1542,7 +1575,7 @@ function updateTimeFieldVisibility() {
     document.getElementById('time-month-wrap').style.display = showMonth ? 'flex' : 'none';
     document.getElementById('time-day-wrap').style.display = showDay ? 'flex' : 'none';
     document.getElementById('time-hm-wrap').style.display = showHM ? 'flex' : 'none';
-    for (const prefix of ['period-start', 'period-end', 'answer-from', 'answer-to']) {
+    for (const prefix of ['period-start', 'period-end', 'answer-from', 'answer-to', 'answer-display']) {
         document.getElementById(`${prefix}-month-wrap`).style.display = showMonth ? 'flex' : 'none';
         document.getElementById(`${prefix}-day-wrap`).style.display = showDay ? 'flex' : 'none';
         document.getElementById(`${prefix}-hm-wrap`).style.display = showHM ? 'flex' : 'none';
@@ -1551,12 +1584,24 @@ function updateTimeFieldVisibility() {
 }
 
 function legacyRangeToFromTo(a) {
-    const center = getAnswerCenterDecimal(a);
+    const center = timeToDecimal(a);
     const rangeYears = (a.range || 0) * (RANGE_UNIT_TO_YEARS[a.range_unit] || 1);
     return {
         start: decimalToTime(center - rangeYears),
         end: decimalToTime(center + rangeYears),
     };
+}
+
+function syncDisplayPointFromRange() {
+    if (!document.getElementById('answer-is-range').checked) return;
+    const yearVal = document.getElementById('answer-display-year').value;
+    if (yearVal || yearVal === '0') return;
+    const dl = document.getElementById('time-detail-level').value;
+    const start = readPeriodFields('answer-from', dl);
+    const end = readPeriodFields('answer-to', dl);
+    if (!start || !end) return;
+    const mid = (timeToDecimal(start) + timeToDecimal(end)) / 2;
+    fillPeriodFields('answer-display', decimalToTime(mid), dl);
 }
 
 function autoFillPeriod() {
@@ -1624,8 +1669,22 @@ function getTimeAnswerFromForm() {
     if (isRange) {
         const answerStart = readPeriodFields('answer-from', dl);
         const answerEnd = readPeriodFields('answer-to', dl);
-        if (!answerStart || !answerEnd) return null;
-        const ans = { detail_level: dl, answer_is_range: true, answer_start: answerStart, answer_end: answerEnd };
+        const display = readPeriodFields('answer-display', dl);
+        if (!answerStart || !answerEnd || !display) return null;
+        const ans = {
+            year: display.year,
+            bc: display.bc,
+            detail_level: dl,
+            answer_is_range: true,
+            answer_start: answerStart,
+            answer_end: answerEnd,
+        };
+        if (dl === 'month' || dl === 'day' || dl === 'minute') ans.month = display.month;
+        if (dl === 'day' || dl === 'minute') ans.day = display.day;
+        if (dl === 'minute') {
+            ans.hour = display.hour;
+            ans.minute = display.minute;
+        }
         if (ps) ans.period_start = ps;
         if (pe) ans.period_end = pe;
         return ans;
@@ -1658,7 +1717,14 @@ function updateTimePreview() {
     const ans = getTimeAnswerFromForm();
     const el = document.getElementById('time-preview');
     if (!ans) { el.textContent = 'No time selected'; return; }
-    let text = formatTimeTitle(ans);
+    let text;
+    if (ans.answer_start && ans.answer_end) {
+        text = formatTimeTitle(getAnswerDisplayTime(ans) || ans);
+        const rangeSpan = formatAnswerRangeSpan(ans);
+        if (rangeSpan) text += ` | Range: ${rangeSpan}`;
+    } else {
+        text = formatTimeTitle(ans);
+    }
     if (ans.period_start && ans.period_end) {
         text += ` | Period: ${formatTimeTitle(ans.period_start)} → ${formatTimeTitle(ans.period_end)}`;
     }
@@ -1667,10 +1733,15 @@ function updateTimePreview() {
 
 document.getElementById('mystery-type').addEventListener('change', updateMysteryTypeUI);
 document.getElementById('time-detail-level').addEventListener('change', updateTimeFieldVisibility);
-document.getElementById('answer-is-range').addEventListener('change', () => { updateAnswerRangeUI(); autoFillPeriod(); });
+document.getElementById('answer-is-range').addEventListener('change', () => {
+    updateAnswerRangeUI();
+    if (document.getElementById('answer-is-range').checked) syncDisplayPointFromRange();
+    autoFillPeriod();
+});
 ['time-year', 'time-bc', 'time-month', 'time-day', 'time-hour', 'time-minute',
     'answer-from-year', 'answer-from-bc', 'answer-from-month', 'answer-from-day', 'answer-from-hour', 'answer-from-minute',
-    'answer-to-year', 'answer-to-bc', 'answer-to-month', 'answer-to-day', 'answer-to-hour', 'answer-to-minute'
+    'answer-to-year', 'answer-to-bc', 'answer-to-month', 'answer-to-day', 'answer-to-hour', 'answer-to-minute',
+    'answer-display-year', 'answer-display-bc', 'answer-display-month', 'answer-display-day', 'answer-display-hour', 'answer-display-minute'
 ].forEach(id => {
     const el = document.getElementById(id);
     if (el) el.addEventListener('input', updateTimePreview);
@@ -1679,10 +1750,17 @@ document.getElementById('answer-is-range').addEventListener('change', () => { up
 ['time-year', 'time-bc', 'time-month', 'time-day', 'time-hour', 'time-minute', 'time-detail-level',
     'answer-from-year', 'answer-from-bc', 'answer-from-month', 'answer-from-day', 'answer-from-hour', 'answer-from-minute',
     'answer-to-year', 'answer-to-bc', 'answer-to-month', 'answer-to-day', 'answer-to-hour', 'answer-to-minute',
+    'answer-display-year', 'answer-display-bc', 'answer-display-month', 'answer-display-day', 'answer-display-hour', 'answer-display-minute',
     'answer-is-range'
 ].forEach(id => {
     const el = document.getElementById(id);
     if (el) el.addEventListener('change', autoFillPeriod);
+});
+['answer-from-year', 'answer-from-bc', 'answer-from-month', 'answer-from-day', 'answer-from-hour', 'answer-from-minute',
+    'answer-to-year', 'answer-to-bc', 'answer-to-month', 'answer-to-day', 'answer-to-hour', 'answer-to-minute'
+].forEach(id => {
+    const el = document.getElementById(id);
+    if (el) el.addEventListener('change', syncDisplayPointFromRange);
 });
 const periodFieldIds = [
     'period-start-year', 'period-start-bc', 'period-start-month', 'period-start-day', 'period-start-hour', 'period-start-minute',
@@ -1791,6 +1869,7 @@ function resetMysteryForm() {
     document.getElementById('answer-is-range').checked = false;
     clearPeriodFields('answer-from');
     clearPeriodFields('answer-to');
+    clearPeriodFields('answer-display');
     clearPeriodFields('period-start');
     clearPeriodFields('period-end');
     periodManuallyEdited = false;
@@ -1830,6 +1909,11 @@ function editTemplate(template) {
                 : legacyRangeToFromTo(a);
             fillPeriodFields('answer-from', start, dl);
             fillPeriodFields('answer-to', end, dl);
+            if (a.year != null) {
+                fillPeriodFields('answer-display', getAnswerDisplayTime(a), dl);
+            } else {
+                syncDisplayPointFromRange();
+            }
         } else if (a.year != null) {
             document.getElementById('time-year').value = Math.abs(a.year);
             document.getElementById('time-bc').checked = a.bc || a.year < 0;
@@ -1876,7 +1960,7 @@ document.getElementById('btn-save-mystery').addEventListener('click', async () =
         if (!answer) {
             setButtonLoading(saveBtn, false);
             return showToast(document.getElementById('answer-is-range').checked
-                ? 'Please enter both From and To for the correct answer'
+                ? 'Please enter From, To, and display time for the correct answer'
                 : 'Please enter a year', { type: 'error' });
         }
         const now = new Date();
@@ -1885,10 +1969,15 @@ document.getElementById('btn-save-mystery').addEventListener('click', async () =
             const lo = timeToDecimal(answer.answer_start);
             const hi = timeToDecimal(answer.answer_end);
             if (lo >= hi) { setButtonLoading(saveBtn, false); return showToast('Correct answer From must be before To', { type: 'error' }); }
-            for (const t of [answer.answer_start, answer.answer_end]) {
+            for (const t of [answer.answer_start, answer.answer_end, getAnswerDisplayTime(answer)]) {
                 const absYear = Math.abs(t.year);
                 if (absYear > 13_800_000_000) { setButtonLoading(saveBtn, false); return showToast('Year cannot exceed 13.8 billion', { type: 'error' }); }
                 if (!t.bc && t.year > currentYear) { setButtonLoading(saveBtn, false); return showToast('Year cannot be in the future', { type: 'error' }); }
+            }
+            const dispDec = timeToDecimal(getAnswerDisplayTime(answer));
+            if (dispDec < lo || dispDec > hi) {
+                setButtonLoading(saveBtn, false);
+                return showToast('Display time must be within the correct answer range', { type: 'error' });
             }
         } else {
             const absYear = Math.abs(answer.year);

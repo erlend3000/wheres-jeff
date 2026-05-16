@@ -97,7 +97,7 @@
             formatTimeAgo, formatDistance, formatDistanceShort, formatCountdown, formatCountdownIn, formatMysteryDate,
             firstName, possessive, formatNumber, formatLocationLabel, reverseGeocode,
             timeToDecimal, decimalToTime, timeYearsDiff, formatTimeDifference, formatTimeDifferenceShort,
-            formatTimeDisplay, formatTimeTitle, effectiveTimeDiff, getAnswerCenterDecimal
+            formatTimeDisplay, formatTimeTitle, effectiveTimeDiff, getAnswerCenterDecimal, getAnswerDisplayTime
         } from '../lib/game.js';
         import { supabase } from '../lib/supabase.js';
         import { showToast } from '../lib/toast.js';
@@ -1625,51 +1625,32 @@
                 curvePinAlpha = Math.random() < 0.5 ? lobeAlpha : 2 - lobeAlpha;
                 updateTimeFields();
             }
-            let answerTimes = [];
-            if (opts.answer?.answer_start && opts.answer?.answer_end) {
-                answerTimes = [opts.answer.answer_start, opts.answer.answer_end];
-            } else {
-                const single = opts.answerTime || (opts.answer?.year != null ? opts.answer : null);
-                if (single) answerTimes = [single];
-            }
-            if (answerTimes.length) {
-                curveAnswerAlphas = answerTimes.map(t => yearToAlpha(timeToDecimal(t)));
-                curveAnswerAlpha = curveAnswerAlphas[0];
-                const answerPins = [];
-                answerTimes.forEach(() => {
+            const displayTime = opts.answer ? getAnswerDisplayTime(opts.answer) : null;
+            const answerTime = displayTime || opts.answerTime || (opts.answer?.year != null ? opts.answer : null);
+            if (answerTime) {
+                curveAnswerAlpha = yearToAlpha(timeToDecimal(answerTime));
+                curveAnswerAlphas = [curveAnswerAlpha];
                 const ansPin = document.createElement('div');
                 ansPin.className = 'curve-pin curve-pin--answer';
                 ansPin.innerHTML = `<div class="world-pin world-pin--j" style="background:#BA0000;cursor:pointer;">J</div>`;
                 ansPin.style.display = 'none';
                 containerEl.appendChild(ansPin);
-                answerPins.push(ansPin);
-                });
 
                 if (curveReadonly && opts.pinTime) {
-                    curveResultAnswer = opts.answer || opts.answerTime;
+                    curveResultAnswer = opts.answer || answerTime;
                     curveResultEntry = opts.pinTime;
                     curveResultMode = 'distance';
 
                     curvePinEl.style.cursor = 'pointer';
+                    ansPin.style.pointerEvents = 'auto';
                     curvePinEl.style.pointerEvents = 'auto';
-                    answerPins.forEach(ansPin => {
-                        ansPin.style.pointerEvents = 'auto';
-                        ansPin.addEventListener('click', (e) => {
-                            e.stopPropagation();
-                            if (curveResultTimer) clearTimeout(curveResultTimer);
-                            curveResultMode = 'answer';
-                            if (curveResultAnswer?.answer_start && curveResultAnswer?.answer_end) {
-                                const yearEl = curveFieldsEl?.querySelector('[data-field="year"]');
-                                const dateEl = curveFieldsEl?.querySelector('[data-field="date"]');
-                                const timeEl = curveFieldsEl?.querySelector('[data-field="time"]');
-                                if (yearEl) yearEl.querySelector('.time-field__display').textContent = formatTimeTitle(curveResultAnswer);
-                                if (dateEl) dateEl.style.display = 'none';
-                                if (timeEl) timeEl.style.display = 'none';
-                            } else {
-                                showCurveTimeFields(curveResultAnswer);
-                            }
-                            curveResultTimer = setTimeout(() => { curveResultMode = 'distance'; showCurveDistanceFields(); }, 2000);
-                        });
+
+                    ansPin.addEventListener('click', (e) => {
+                        e.stopPropagation();
+                        if (curveResultTimer) clearTimeout(curveResultTimer);
+                        curveResultMode = 'answer';
+                        showCurveTimeFields(getAnswerDisplayTime(curveResultAnswer) || curveResultAnswer);
+                        curveResultTimer = setTimeout(() => { curveResultMode = 'distance'; showCurveDistanceFields(); }, 2000);
                     });
 
                     curvePinEl.addEventListener('click', (e) => {
