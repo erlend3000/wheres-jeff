@@ -1276,33 +1276,31 @@ async function openSeasonDetail(id) {
         }
 
         async function enrichLocations(guesses) {
-            await Promise.all(guesses.map(async g => {
+            for (const g of guesses) {
                 if (g.guess?.lat != null && (!g.guess.location || !g.guess.location.length)) {
                     try { g.guess.location = await reverseGeocode(g.guess.lat, g.guess.lng); } catch (e) {}
                 }
-            }));
+            }
         }
 
-        function guessLabel(g, isTime) {
+        function guessLabel(g, isTime, detailLevel) {
             if (isTime && g.guess?.year != null) {
-                const yr = Math.abs(g.guess.year);
-                const bc = g.guess.bc || g.guess.year < 0;
-                let label = String(yr) + (bc ? ' BC' : '');
-                if (g.guess.month) label = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'][(g.guess.month - 1)] + ' ' + label;
-                if (g.guess.day) label = g.guess.day + ' ' + label;
-                return label;
+                return formatTimeTitle({ ...g.guess, detail_level: detailLevel || g.guess.detail_level || 'year' });
             }
             if (g.guess?.location?.length) return formatLocationLabel(g.guess.location);
-            if (g.guess?.lat != null) return `${g.guess.lat.toFixed(2)}, ${g.guess.lng.toFixed(2)}`;
+            if (g.guess?.lat != null) {
+                const normLng = ((g.guess.lng % 360) + 540) % 360 - 180;
+                return `${g.guess.lat.toFixed(2)}, ${normLng.toFixed(2)}`;
+            }
             return '—';
         }
 
-        function guessKeyFn(publishedAt, isTime, mysteryId) {
+        function guessKeyFn(publishedAt, isTime, mysteryId, detailLevel) {
             const mKarma = karmaByMystery[mysteryId] || {};
             return (g, col) => {
                 if (col === 'name') return g.profiles?.name || '';
                 if (col === 'time') return new Date(g.submitted_at).getTime() - new Date(publishedAt).getTime();
-                if (col === 'guess') return isTime && g.guess?.year != null ? timeToDecimal(g.guess) : guessLabel(g, isTime);
+                if (col === 'guess') return isTime && g.guess?.year != null ? timeToDecimal(g.guess) : guessLabel(g, isTime, detailLevel);
                 if (col === 'distance') return g.distance_m ?? Infinity;
                 if (col === 'score') return g.score ?? 0;
                 if (col === 'karma') return mKarma[g.user_id] ?? 0;
@@ -1330,8 +1328,13 @@ async function openSeasonDetail(id) {
             container.querySelector('#round-next')?.addEventListener('click', () => { if (roundIndex < revealedMysteries.length - 1) { roundIndex++; roundsCache = null; renderRoundsView(); } });
             if (!roundsCache || roundsCache.mysteryId !== m.id) {
                 const guesses = await api.getGuessesForMystery(m.id);
-                await enrichLocations(guesses);
                 roundsCache = { mysteryId: m.id, guesses };
+                renderRoundsTable();
+                if (m.type !== 'time') {
+                    await enrichLocations(guesses);
+                    if (roundsCache?.mysteryId === m.id) renderRoundsTable();
+                }
+                return;
             }
             renderRoundsTable();
         }
@@ -1344,7 +1347,8 @@ async function openSeasonDetail(id) {
             const { guesses } = roundsCache;
             if (!guesses.length) { body.innerHTML = '<div class="empty-state" style="padding:12px 0">No guesses</div>'; return; }
             const mKarma = karmaByMystery[m.id] || {};
-            const sorted = sortedBy(guesses, 'rounds', guessKeyFn(m.published_at, isTime, m.id));
+            const dl = m.answer?.detail_level;
+            const sorted = sortedBy(guesses, 'rounds', guessKeyFn(m.published_at, isTime, m.id, dl));
             body.innerHTML = `<table class="admin-table"${isTime ? ' data-time' : ''}>
                 <thead><tr>${sortTh('rounds','name','Name')}${sortTh('rounds','time','Time')}${sortTh('rounds','guess','Guess')}${sortTh('rounds','distance','Distance')}${sortTh('rounds','score','Score')}${sortTh('rounds','karma','Karma')}</tr></thead>
                 <tbody>${sorted.map(g => {
@@ -1355,7 +1359,7 @@ async function openSeasonDetail(id) {
                     return `<tr${isAuto ? ' style="opacity:0.5"' : ''}>
                         <td style="font-weight:500">${esc(g.profiles?.name || 'Unknown')}${isAuto ? ' (auto)' : ''}</td>
                         <td>${time}</td>
-                        <td>${esc(guessLabel(g, isTime))}</td>
+                        <td>${esc(guessLabel(g, isTime, dl))}</td>
                         <td>${dist}</td>
                         <td>${g.score}</td>
                         <td>${(k > 0 ? '+' : '') + k.toLocaleString()}</td>
@@ -1377,8 +1381,13 @@ async function openSeasonDetail(id) {
                 <div id="live-table-body"><div class="empty-state" style="padding:12px 0">Loading...</div></div>`;
             if (!liveCache || liveCache.mysteryId !== liveMystery.id) {
                 const guesses = await api.getGuessesForMystery(liveMystery.id);
-                await enrichLocations(guesses);
                 liveCache = { mysteryId: liveMystery.id, guesses };
+                renderLiveTable();
+                if (liveMystery.type !== 'time') {
+                    await enrichLocations(guesses);
+                    if (liveCache?.mysteryId === liveMystery.id) renderLiveTable();
+                }
+                return;
             }
             renderLiveTable();
         }
@@ -1389,7 +1398,8 @@ async function openSeasonDetail(id) {
             const { guesses } = liveCache;
             const isTime = liveMystery.type === 'time';
             if (!guesses.length) { body.innerHTML = '<div class="empty-state" style="padding:12px 0">No guesses yet</div>'; return; }
-            const sorted = sortedBy(guesses, 'live', guessKeyFn(liveMystery.published_at, isTime));
+            const dl = liveMystery.answer?.detail_level;
+            const sorted = sortedBy(guesses, 'live', guessKeyFn(liveMystery.published_at, isTime, liveMystery.id, dl));
             body.innerHTML = `<table class="admin-table"${isTime ? ' data-time' : ''}>
                 <thead><tr>${sortTh('live','name','Name')}${sortTh('live','time','Time')}${sortTh('live','guess','Guess')}${sortTh('live','score','Score')}</tr></thead>
                 <tbody>${sorted.map(g => {
@@ -1398,7 +1408,7 @@ async function openSeasonDetail(id) {
                     return `<tr${isAuto ? ' style="opacity:0.5"' : ''}>
                         <td style="font-weight:500">${esc(g.profiles?.name || 'Unknown')}${isAuto ? ' (auto)' : ''}</td>
                         <td>${time}</td>
-                        <td>${esc(guessLabel(g, isTime))}</td>
+                        <td>${esc(guessLabel(g, isTime, dl))}</td>
                         <td>${g.score}</td>
                     </tr>`;
                 }).join('')}</tbody></table>`;
