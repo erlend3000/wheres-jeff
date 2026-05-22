@@ -1288,6 +1288,7 @@ async function openSeasonDetail(id) {
                 return formatTimeTitle({ ...g.guess, detail_level: detailLevel || g.guess.detail_level || 'year' });
             }
             if (g.guess?.location?.length) return formatLocationLabel(g.guess.location);
+            if (g.guess?.auto_guess) return 'Unknown';
             if (g.guess?.lat != null) {
                 const normLng = ((g.guess.lng % 360) + 540) % 360 - 180;
                 return `${g.guess.lat.toFixed(2)}, ${normLng.toFixed(2)}`;
