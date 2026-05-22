@@ -1188,7 +1188,7 @@ async function openSeasonDetail(id) {
         let roundIndex = revealedMysteries.length - 1;
         let activeScoreTab = 'season';
         const sortState = { season: { col: 'score', asc: false }, rounds: { col: 'score', asc: false }, live: { col: 'score', asc: false } };
-        let roundsCache = null;
+        const roundsCacheMap = new Map();
         let liveCache = null;
 
         function sortTh(view, col, label) {
@@ -1324,27 +1324,27 @@ async function openSeasonDetail(id) {
                     <button id="round-next" class="btn btn--plain btn--small" ${nextDisabled ? 'disabled style="opacity:0.3;pointer-events:none"' : ''}>&rarr;</button>
                 </div>
                 <div id="round-table-body"><div class="empty-state" style="padding:12px 0">Loading...</div></div>`;
-            container.querySelector('#round-prev')?.addEventListener('click', () => { if (roundIndex > 0) { roundIndex--; roundsCache = null; renderRoundsView(); } });
-            container.querySelector('#round-next')?.addEventListener('click', () => { if (roundIndex < revealedMysteries.length - 1) { roundIndex++; roundsCache = null; renderRoundsView(); } });
-            if (!roundsCache || roundsCache.mysteryId !== m.id) {
-                const guesses = await api.getGuessesForMystery(m.id);
-                roundsCache = { mysteryId: m.id, guesses };
+            container.querySelector('#round-prev')?.addEventListener('click', () => { if (roundIndex > 0) { roundIndex--; renderRoundsView(); } });
+            container.querySelector('#round-next')?.addEventListener('click', () => { if (roundIndex < revealedMysteries.length - 1) { roundIndex++; renderRoundsView(); } });
+            if (roundsCacheMap.has(m.id)) {
                 renderRoundsTable();
-                if (m.type !== 'time') {
-                    await enrichLocations(guesses);
-                    if (roundsCache?.mysteryId === m.id) renderRoundsTable();
-                }
                 return;
             }
+            const guesses = await api.getGuessesForMystery(m.id);
+            roundsCacheMap.set(m.id, guesses);
             renderRoundsTable();
+            if (m.type !== 'time') {
+                await enrichLocations(guesses);
+                if (revealedMysteries[roundIndex]?.id === m.id) renderRoundsTable();
+            }
         }
 
         function renderRoundsTable() {
             const body = document.getElementById('round-table-body');
-            if (!body || !roundsCache) return;
             const m = revealedMysteries[roundIndex];
+            const guesses = roundsCacheMap.get(m?.id);
+            if (!body || !guesses) return;
             const isTime = m.type === 'time';
-            const { guesses } = roundsCache;
             if (!guesses.length) { body.innerHTML = '<div class="empty-state" style="padding:12px 0">No guesses</div>'; return; }
             const mKarma = karmaByMystery[m.id] || {};
             const dl = m.answer?.detail_level;
