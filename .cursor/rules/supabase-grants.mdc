@@ -1,0 +1,19 @@
+---
+description: Supabase Data API grant requirements for new tables
+globs: supabase/**/*.sql
+alwaysApply: false
+---
+
+# Supabase: Explicit GRANTs required for new tables
+
+From October 30, 2026, new tables in the `public` schema are NOT automatically exposed to the Data API. Any new table needs explicit `GRANT` statements before `supabase-js` or PostgREST can access it.
+
+When creating a new table in a migration, always include:
+
+```sql
+grant select on public.new_table to anon;
+grant select, insert, update, delete on public.new_table to authenticated;
+grant select, insert, update, delete on public.new_table to service_role;
+```
+
+Existing tables (guesses, profiles, mysteries, seasons, season_members, app_settings, etc.) already have implicit grants and are unaffected.
