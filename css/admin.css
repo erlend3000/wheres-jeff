@@ -367,9 +367,10 @@ input[type="datetime-local"].form-input {
 }
 
 .admin-table .actions {
-    display: flex;
-    gap: 6px;
-    justify-content: flex-end;
+    text-align: right;
+    white-space: nowrap;
+}
+.admin-table .actions .btn + .btn { margin-left: 6px; }
 }
 
 /* === Badge === */
