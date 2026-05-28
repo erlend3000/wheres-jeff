@@ -371,7 +371,6 @@ input[type="datetime-local"].form-input {
     white-space: nowrap;
 }
 .admin-table .actions .btn + .btn { margin-left: 6px; }
-}
 
 /* === Badge === */
 
