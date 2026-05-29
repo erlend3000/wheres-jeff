@@ -1597,7 +1597,7 @@
             const initial = esc(firstName(pinDisplayName).charAt(0).toUpperCase());
             curvePinEl = document.createElement('div');
             curvePinEl.className = 'curve-pin';
-            curvePinEl.innerHTML = `<div class="world-pin" style="background:#000;">${initial}</div>`;
+            curvePinEl.innerHTML = `<div class="world-pin${initial === 'J' ? ' world-pin--j' : ''}" style="background:#000;">${initial}</div>`;
             curvePinEl.style.display = 'none';
             containerEl.appendChild(curvePinEl);
 
@@ -2171,7 +2171,7 @@
             const gPinPx = Math.round(px(PIN_VW));
             const gPinHalf = gPinPx / 2;
             const initial = esc(firstName(profile.name).charAt(0).toUpperCase());
-            const guessIcon = L.divIcon({ className: '', html: `<div class="world-pin" style="background:#000;">${initial}</div>`, iconSize: [gPinPx, gPinPx], iconAnchor: [gPinHalf, gPinHalf] });
+            const guessIcon = L.divIcon({ className: '', html: `<div class="world-pin${initial === 'J' ? ' world-pin--j' : ''}" style="background:#000;">${initial}</div>`, iconSize: [gPinPx, gPinPx], iconAnchor: [gPinHalf, gPinHalf] });
 
             function saveGeoPin(latlng) {
                 if (mysteryId) savePinToStorage(mysteryId, { type: 'geo', lat: latlng.lat, lng: latlng.lng });
@@ -2327,7 +2327,7 @@
             const sPinPx = Math.round(px(PIN_VW));
             const sPinH = sPinPx / 2;
             const initial = esc(firstName(profile.name).charAt(0).toUpperCase());
-            const icon = L.divIcon({ className: '', html: `<div class="world-pin" style="background:#000;cursor:pointer;">${initial}</div>`, iconSize: [sPinPx, sPinPx], iconAnchor: [sPinH, sPinH] });
+            const icon = L.divIcon({ className: '', html: `<div class="world-pin${initial === 'J' ? ' world-pin--j' : ''}" style="background:#000;cursor:pointer;">${initial}</div>`, iconSize: [sPinPx, sPinPx], iconAnchor: [sPinH, sPinH] });
             const submittedPin = L.marker([lat, lng], { icon }).addTo(guessMap);
             submittedPin.on('click', (e) => {
                 L.DomEvent.stopPropagation(e);
@@ -2512,7 +2512,11 @@
                 curveResultEntry = entry.guess;
                 if (curvePinEl) {
                     const pinInner = curvePinEl.querySelector('.world-pin');
-                    if (pinInner) pinInner.textContent = firstName(entry.name).charAt(0).toUpperCase();
+                    if (pinInner) {
+                        const ch = firstName(entry.name).charAt(0).toUpperCase();
+                        pinInner.textContent = ch;
+                        pinInner.classList.toggle('world-pin--j', ch === 'J');
+                    }
                 }
                 setCurvePinFromTime(entry.guess);
                 fitCurveToBothPins();
@@ -2714,7 +2718,7 @@
             guessLL[1] = gLng;
 
             const guessInitial = esc(firstName(entry.name).charAt(0).toUpperCase());
-            const guessIcon = L.divIcon({ className: '', html: `<div class="world-pin" style="background:#000;cursor:pointer;">${guessInitial}</div>`, iconSize: [pinPx, pinPx], iconAnchor: [pinH, pinH] });
+            const guessIcon = L.divIcon({ className: '', html: `<div class="world-pin${guessInitial === 'J' ? ' world-pin--j' : ''}" style="background:#000;cursor:pointer;">${guessInitial}</div>`, iconSize: [pinPx, pinPx], iconAnchor: [pinH, pinH] });
             const guessMarkerResult = L.marker(guessLL, { icon: guessIcon, zIndexOffset: 500 }).addTo(resultMap);
 
             guessMarkerResult.on('click', (e) => {
